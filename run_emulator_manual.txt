@@ -1,0 +1,14 @@
+수동 실행 방법:
+
+1. Windows 키 + R → cmd 입력
+2. 아래 명령어 순서대로 실행:
+
+cd D:\Data\05_CGXR\Android\XRTEST
+D:\Users\SOGANG\AppData\Local\Android\Sdk\emulator\emulator.exe -list-avds
+
+(위에서 나온 AVD 이름을 확인 후)
+
+D:\Users\SOGANG\AppData\Local\Android\Sdk\emulator\emulator.exe -avd [AVD이름] -camera-back webcam0 -camera-front webcam0
+
+예시:
+D:\Users\SOGANG\AppData\Local\Android\Sdk\emulator\emulator.exe -avd Pixel_8_API_36 -camera-back webcam0 -camera-front webcam0

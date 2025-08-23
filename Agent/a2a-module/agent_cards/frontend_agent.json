@@ -1,0 +1,58 @@
+{
+    "name": "Frontend Development Agent",
+    "description": "Expert in modern web development with React, Vue.js, Angular, and UI/UX",
+    "url": "http://localhost:8010/",
+    "version": "1.0.0",
+    "capabilities": {
+        "streaming": true,
+        "pushNotifications": true,
+        "stateTransitionHistory": false
+    },
+    "defaultInputModes": [
+        "text",
+        "text/plain"
+    ],
+    "defaultOutputModes": [
+        "text",
+        "text/plain"
+    ],
+    "skills": [
+        {
+            "id": "ui_components",
+            "name": "UI Component Development",
+            "description": "Create reusable UI components with React, Vue, Angular. Responsive design and accessibility.",
+            "tags": [
+                "react", "vue", "angular", "components", "responsive", "accessibility"
+            ],
+            "examples": [
+                "Create a responsive navigation component in React",
+                "Build a modal component with Vue.js",
+                "Implement infinite scrolling table"
+            ]
+        },
+        {
+            "id": "state_management", 
+            "name": "State Management",
+            "description": "Redux, Vuex, Context API, Zustand. Complex state patterns and data flow.",
+            "tags": [
+                "redux", "vuex", "context", "state", "data-flow"
+            ],
+            "examples": [
+                "Implement Redux store for user management",
+                "Create Vuex modules for shopping cart"
+            ]
+        },
+        {
+            "id": "styling_optimization",
+            "name": "Styling & Performance",
+            "description": "CSS3, SASS, Tailwind CSS. Bundle optimization and performance tuning.",
+            "tags": [
+                "css", "sass", "tailwind", "performance", "optimization"
+            ],
+            "examples": [
+                "Optimize React bundle size",
+                "Implement dark mode with CSS variables"
+            ]
+        }
+    ]
+}

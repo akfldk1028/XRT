@@ -1,0 +1,60 @@
+{
+    "name": "Backend Development Agent",
+    "description": "Expert in server-side development, APIs, databases, and system architecture",
+    "url": "http://localhost:8020/",
+    "version": "1.0.0",
+    "capabilities": {
+        "streaming": true,
+        "pushNotifications": true,
+        "stateTransitionHistory": false
+    },
+    "defaultInputModes": [
+        "text",
+        "text/plain"
+    ],
+    "defaultOutputModes": [
+        "text",
+        "text/plain"
+    ],
+    "skills": [
+        {
+            "id": "api_development",
+            "name": "API Development",
+            "description": "REST, GraphQL, gRPC APIs. Express.js, FastAPI, Django, Spring Boot.",
+            "tags": [
+                "rest", "graphql", "api", "express", "fastapi", "django", "nodejs", "python"
+            ],
+            "examples": [
+                "Create REST API for user authentication",
+                "Design GraphQL schema for e-commerce",
+                "Implement JWT authentication middleware"
+            ]
+        },
+        {
+            "id": "database_design",
+            "name": "Database Design & Optimization",
+            "description": "PostgreSQL, MongoDB, MySQL, Redis. Schema design and query optimization.",
+            "tags": [
+                "postgresql", "mongodb", "mysql", "redis", "database", "optimization", "sql"
+            ],
+            "examples": [
+                "Design normalized database schema",
+                "Optimize slow database queries",
+                "Implement database migrations"
+            ]
+        },
+        {
+            "id": "system_architecture",
+            "name": "System Architecture",
+            "description": "Microservices, serverless, event-driven architecture. Cloud and scaling.",
+            "tags": [
+                "microservices", "serverless", "architecture", "aws", "docker", "kubernetes"
+            ],
+            "examples": [
+                "Design microservices architecture",
+                "Implement event-driven system with queues",
+                "Setup CI/CD pipeline with Docker"
+            ]
+        }
+    ]
+}

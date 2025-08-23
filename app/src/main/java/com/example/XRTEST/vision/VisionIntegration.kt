@@ -1,0 +1,913 @@
+package com.example.XRTEST.vision
+
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.ImageFormat
+import android.graphics.Rect
+import android.graphics.YuvImage
+import android.media.Image
+import android.util.Log
+import com.example.XRTEST.camera.Camera2Manager
+import com.example.XRTEST.voice.VoiceManager
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.*
+import java.io.ByteArrayOutputStream
+import java.nio.ByteBuffer
+
+/**
+ * VisionIntegration - Orchestrates camera, audio, and OpenAI Realtime API
+ * Provides seamless integration for AR Glass Q&A functionality
+ */
+class VisionIntegration(
+    private val context: Context,
+    private val apiKey: String,
+    private val camera2Manager: Camera2Manager,
+    private val voiceManager: VoiceManager
+) {
+    
+    companion object {
+        private const val TAG = "VisionIntegration"
+        private const val IMAGE_QUALITY = 85 // JPEG compression quality
+        private const val MAX_IMAGE_SIZE = 1024 // Max dimension for API
+        private const val CAPTURE_INTERVAL_MS = 1000L // Capture frame every second
+        private const val AUDIO_CHUNK_DURATION_MS = 100L // Audio chunk duration
+    }
+    
+    private val coroutineScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+    
+    // Components
+    private lateinit var realtimeClient: RealtimeVisionClient
+    private lateinit var visionAnalyzer: VisionAnalyzer  // For actual image/vision analysis
+    private lateinit var audioStreamManager: AudioStreamManager
+    
+    // State management
+    private val _state = MutableStateFlow(IntegrationState.IDLE)
+    val state: StateFlow<IntegrationState> = _state.asStateFlow()
+    
+    private val _lastResponse = MutableStateFlow<Response?>(null)
+    val lastResponse: StateFlow<Response?> = _lastResponse.asStateFlow()
+    
+    private val _isProcessing = MutableStateFlow(false)
+    val isProcessing: StateFlow<Boolean> = _isProcessing.asStateFlow()
+    
+    // Control flags
+    private var isActive = false
+    private var captureJob: Job? = null
+    private var audioJob: Job? = null
+    private var lastCaptureTime = 0L
+    
+    // TTS Configuration
+    private var useAndroidTtsForKorean = true  // Use Android TTS for Korean by default
+    private var forceAndroidTts = false  // Force Android TTS for all languages
+    
+    enum class IntegrationState {
+        IDLE,
+        CONNECTING,
+        READY,
+        LISTENING,
+        PROCESSING,
+        RESPONDING,
+        ERROR
+    }
+    
+    data class Response(
+        val text: String,
+        val audioData: ByteArray? = null,
+        val timestamp: Long = System.currentTimeMillis()
+    )
+    
+    init {
+        setupRealtimeClient()
+        setupVisionAnalyzer()  // Setup vision analyzer for image recognition
+        setupAudioManager()
+        observeConnections()
+        
+        // Set default Korean mode configuration
+        configureTts(useAndroidForKorean = true, forceAndroid = false)
+        Log.i(TAG, "VisionIntegration initialized with hybrid approach: Realtime API (audio) + Vision Analyzer (images)")
+    }
+    
+    /**
+     * Setup OpenAI Realtime Client (for audio conversation only)
+     */
+    private fun setupRealtimeClient() {
+        realtimeClient = RealtimeVisionClient(
+            apiKey = apiKey,
+            onAudioResponse = { audioData ->
+                handleAudioResponse(audioData)
+            },
+            onTextResponse = { text ->
+                handleTextResponse(text)
+            },
+            onError = { error ->
+                handleError(error)
+            },
+            selectedVoice = "alloy",  // Default voice, can be changed
+            useKorean = true  // Default to Korean mode
+        )
+    }
+    
+    /**
+     * Setup Vision Analyzer (for actual image recognition with GPT-4V)
+     */
+    private fun setupVisionAnalyzer() {
+        visionAnalyzer = VisionAnalyzer(
+            apiKey = apiKey,
+            onAnalysisResult = { text ->
+                handleVisionResponse(text)
+            },
+            onError = { error ->
+                handleError(error)
+            }
+        )
+    }
+    
+    /**
+     * Setup Audio Stream Manager
+     */
+    private fun setupAudioManager() {
+        audioStreamManager = AudioStreamManager { audioData ->
+            // Context7: Send captured audio to Realtime API using proper method
+            if (_state.value == IntegrationState.LISTENING) {
+                realtimeClient.sendAudioData(audioData)
+            }
+        }
+    }
+    
+    /**
+     * Observe connection states
+     */
+    private fun observeConnections() {
+        // Monitor Realtime API connection
+        coroutineScope.launch {
+            realtimeClient.connectionState.collect { connectionState ->
+                when (connectionState) {
+                    WebSocketManager.ConnectionState.CONNECTED -> {
+                        if (_state.value == IntegrationState.CONNECTING) {
+                            _state.value = IntegrationState.READY
+                            Log.d(TAG, "System ready for interaction")
+                        }
+                    }
+                    WebSocketManager.ConnectionState.CONNECTING -> {
+                        _state.value = IntegrationState.CONNECTING
+                    }
+                    WebSocketManager.ConnectionState.ERROR -> {
+                        _state.value = IntegrationState.ERROR
+                    }
+                    else -> {}
+                }
+            }
+        }
+        
+        // Camera frame monitoring disabled - only analyze on user request
+        // coroutineScope.launch {
+        //     camera2Manager.frameProcessed.collect { frameData ->
+        //         if (frameData != null && shouldCaptureFrame()) {
+        //             processFrame(frameData)
+        //         }
+        //     }
+        // }
+    }
+    
+    /**
+     * Initialize the integration system
+     */
+    fun initialize() {
+        coroutineScope.launch {
+            try {
+                _state.value = IntegrationState.CONNECTING
+                
+                // Initialize audio components
+                if (!audioStreamManager.initializeRecording()) {
+                    throw Exception("Failed to initialize audio recording")
+                }
+                
+                if (!audioStreamManager.initializePlayback()) {
+                    throw Exception("Failed to initialize audio playback")
+                }
+                
+                // Connect to Realtime API
+                realtimeClient.connectSync()
+                
+                // Wait for connection
+                withTimeout(10000) {
+                    while (realtimeClient.connectionState.value != WebSocketManager.ConnectionState.CONNECTED) {
+                        delay(100)
+                    }
+                }
+                
+                _state.value = IntegrationState.READY
+                Log.d(TAG, "VisionIntegration initialized successfully")
+                
+            } catch (e: Exception) {
+                Log.e(TAG, "Initialization failed: ${e.message}")
+                _state.value = IntegrationState.ERROR
+                handleError("Initialization failed: ${e.message}")
+            }
+        }
+    }
+    
+    /**
+     * Start the Q&A session
+     */
+    fun startSession() {
+        Log.d(TAG, "startSession called (current state: ${_state.value})")
+        
+        // 이미 LISTENING 상태면 무시
+        if (_state.value == IntegrationState.LISTENING) {
+            Log.d(TAG, "Already in LISTENING state")
+            return
+        }
+        
+        // READY 상태가 아니면 초기화 시도
+        if (_state.value != IntegrationState.READY) {
+            Log.w(TAG, "System not ready, attempting to initialize first...")
+            initialize()
+            return
+        }
+        
+        isActive = true
+        startFrameCapture()
+        startAudioCapture()
+        _state.value = IntegrationState.LISTENING
+        
+        Log.d(TAG, "Q&A session started")
+    }
+    
+    /**
+     * Stop the Q&A session
+     */
+    fun stopSession() {
+        isActive = false
+        stopFrameCapture()
+        stopAudioCapture()
+        realtimeClient.cancelResponse()
+        _state.value = IntegrationState.READY
+        
+        Log.d(TAG, "Q&A session stopped")
+    }
+    
+    /**
+     * Start capturing camera frames
+     */
+    private fun startFrameCapture() {
+        captureJob = coroutineScope.launch {
+            while (isActive) {
+                delay(CAPTURE_INTERVAL_MS)
+                // Frame capture is handled by camera2Manager flow collection
+            }
+        }
+    }
+    
+    /**
+     * Stop capturing camera frames
+     */
+    private fun stopFrameCapture() {
+        captureJob?.cancel()
+        captureJob = null
+    }
+    
+    /**
+     * Start audio capture - DISABLED for emulator testing
+     */
+    private fun startAudioCapture() {
+        // TEMPORARY: Disable audio recording to prevent emulator crashes
+        Log.d(TAG, "Audio recording disabled for emulator testing")
+        
+        // audioStreamManager.startRecording()
+        
+        // Monitor audio level for voice activity
+        // audioJob = coroutineScope.launch {
+        //     audioStreamManager.audioLevel.collect { level ->
+        //         if (level > 0.1f && _state.value == IntegrationState.LISTENING) {
+        //             // Voice activity detected
+        //             Log.v(TAG, "Voice activity: $level")
+        //         }
+        //     }
+        // }
+    }
+    
+    /**
+     * Stop audio capture - DISABLED for emulator testing
+     */
+    private fun stopAudioCapture() {
+        // TEMPORARY: Disable for emulator testing
+        Log.d(TAG, "Audio recording stop disabled for emulator testing")
+        
+        // audioStreamManager.stopRecording()
+        // audioJob?.cancel()
+        // audioJob = null
+    }
+    
+    /**
+     * Check if we should capture the current frame
+     */
+    private fun shouldCaptureFrame(): Boolean {
+        val now = System.currentTimeMillis()
+        if (now - lastCaptureTime < CAPTURE_INTERVAL_MS) {
+            return false
+        }
+        lastCaptureTime = now
+        return isActive && _state.value == IntegrationState.LISTENING
+    }
+    
+    /**
+     * Process camera frame for vision analysis
+     */
+    private fun processFrame(frameData: ByteArray) {
+        coroutineScope.launch {
+            try {
+                // Use Camera2Manager's built-in JPEG conversion
+                val jpegData = camera2Manager.captureCurrentFrameAsJpeg()
+                if (jpegData == null) {
+                    Log.w(TAG, "Failed to capture frame as JPEG")
+                    return@launch
+                }
+                
+                // Resize if needed
+                val resizedData = resizeImageIfNeeded(jpegData)
+                
+                // Convert JPEG to Bitmap for VisionAnalyzer
+                val bitmap = BitmapFactory.decodeByteArray(resizedData, 0, resizedData.size)
+                val prompt = generateContextPrompt()
+                val isKorean = realtimeClient.isKoreanMode()
+                Log.d(TAG, "Sending image to Vision Analyzer: ${resizedData.size} bytes, Korean: $isKorean")
+                visionAnalyzer.analyzeImage(bitmap, prompt, VisionAnalyzer.MODE_GENERAL, isKorean)
+                
+                _state.value = IntegrationState.PROCESSING
+                
+            } catch (e: Exception) {
+                Log.e(TAG, "Frame processing error: ${e.message}")
+            }
+        }
+    }
+    
+    /**
+     * Analyze colors in the current camera view
+     * Specifically designed to accurately identify colors (e.g., yellow vs blue)
+     */
+    fun analyzeColors() {
+        coroutineScope.launch {
+            try {
+                _isProcessing.value = true
+                _state.value = IntegrationState.PROCESSING
+                
+                // Capture current frame
+                val jpegData = camera2Manager.captureCurrentFrameAsJpeg()
+                if (jpegData != null) {
+                    val resizedData = resizeImageIfNeeded(jpegData)
+                    val bitmap = BitmapFactory.decodeByteArray(resizedData, 0, resizedData.size)
+                    val isKorean = realtimeClient.isKoreanMode()
+                    
+                    Log.d(TAG, "Analyzing colors with Vision Analyzer for accurate color recognition")
+                    
+                    // Use specialized color analysis mode
+                    visionAnalyzer.analyzeColorsInImage(bitmap, isKorean)
+                } else {
+                    Log.w(TAG, "No frame available for color analysis")
+                    handleError("Camera frame not available")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Color analysis error: ${e.message}")
+                _isProcessing.value = false
+                _state.value = IntegrationState.READY
+            }
+        }
+    }
+    
+    /**
+     * Analyze objects in the current camera view
+     */
+    fun analyzeObjects() {
+        coroutineScope.launch {
+            try {
+                _isProcessing.value = true
+                _state.value = IntegrationState.PROCESSING
+                
+                // Capture current frame
+                val jpegData = camera2Manager.captureCurrentFrameAsJpeg()
+                if (jpegData != null) {
+                    val resizedData = resizeImageIfNeeded(jpegData)
+                    val bitmap = BitmapFactory.decodeByteArray(resizedData, 0, resizedData.size)
+                    val isKorean = realtimeClient.isKoreanMode()
+                    
+                    Log.d(TAG, "Analyzing objects with Vision Analyzer")
+                    
+                    // Use specialized object detection mode
+                    visionAnalyzer.analyzeObjectsInImage(bitmap, isKorean)
+                } else {
+                    Log.w(TAG, "No frame available for object analysis")
+                    handleError("Camera frame not available")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Object analysis error: ${e.message}")
+                _isProcessing.value = false
+                _state.value = IntegrationState.READY
+            }
+        }
+    }
+    
+    /**
+     * Send a text query with the current frame
+     */
+    fun sendQuery(query: String) {
+        // 상태 체크를 더 유연하게 변경 - CONNECTING 이후 상태면 허용
+        if (_state.value == IntegrationState.IDLE || _state.value == IntegrationState.ERROR) {
+            Log.w(TAG, "Cannot send query: System not ready (state: ${_state.value})")
+            // CONNECTING 상태로 전환 시도
+            if (_state.value == IntegrationState.IDLE) {
+                startSession()
+            }
+            return
+        }
+        
+        Log.d(TAG, "sendQuery called with: $query (current state: ${_state.value})")
+        
+        coroutineScope.launch {
+            try {
+                _isProcessing.value = true
+                _state.value = IntegrationState.PROCESSING
+                
+                // Capture current frame using Camera2Manager's JPEG conversion
+                val jpegData = camera2Manager.captureCurrentFrameAsJpeg()
+                if (jpegData != null) {
+                    // Use Vision Analyzer for actual image recognition
+                    val resizedData = resizeImageIfNeeded(jpegData)
+                    val bitmap = BitmapFactory.decodeByteArray(resizedData, 0, resizedData.size)
+                    val isKorean = realtimeClient.isKoreanMode()
+                    Log.d(TAG, "Hybrid approach: Image analysis with Vision Analyzer + query: $query")
+                    
+                    // Determine analysis mode based on query content
+                    val analysisMode = determineAnalysisMode(query)
+                    Log.d(TAG, "Selected analysis mode: $analysisMode for query: $query")
+                    
+                    // IMPORTANT: Wait for vision analysis first, then let Realtime API respond
+                    // Don't send to Realtime API immediately - let VisionAnalyzer complete first
+                    Log.d(TAG, "Starting vision analysis first, Realtime API will respond after analysis")
+                    
+                    // Vision analyzer will call handleVisionResponse() which sends to Realtime API
+                    visionAnalyzer.analyzeImage(bitmap, query, analysisMode, isKorean)
+                } else {
+                    // No frame available, send text only to Realtime API
+                    Log.d(TAG, "No frame available, sending text to Realtime API: $query")
+                    realtimeClient.sendTextMessage(query)
+                }
+                
+            } catch (e: Exception) {
+                Log.e(TAG, "Query processing error: ${e.message}")
+                _isProcessing.value = false
+                _state.value = IntegrationState.READY
+            }
+        }
+    }
+    
+    /**
+     * Send voice command
+     */
+    fun sendVoiceCommand() {
+        if (audioStreamManager.isRecording.value) {
+            // Context7: Commit audio buffer and create response manually
+            realtimeClient.commitAudioBuffer()
+            realtimeClient.createResponse()
+            _state.value = IntegrationState.PROCESSING
+            Log.d(TAG, "Voice command sent - audio committed and response creation triggered")
+        }
+    }
+    
+    /**
+     * Handle audio response from API
+     */
+    private fun handleAudioResponse(audioData: ByteArray) {
+        coroutineScope.launch {
+            val isKorean = realtimeClient.isKoreanMode()
+            
+            // IMPORTANT: In Korean mode, OpenAI shouldn't send audio at all
+            // If we receive audio in Korean mode, it's a configuration error
+            if (isKorean) {
+                Log.w(TAG, "WARNING: Received audio from OpenAI in Korean mode - this shouldn't happen!")
+                Log.w(TAG, "Audio will be ignored. Using Android TTS for Korean responses.")
+                // DO NOT play the audio, DO NOT update state to RESPONDING
+                // Just ignore it completely
+                return@launch
+            }
+            
+            // English mode: Play OpenAI audio
+            _state.value = IntegrationState.RESPONDING
+            
+            if (forceAndroidTts) {
+                // Force Android TTS even for English
+                Log.d(TAG, "Force Android TTS enabled, skipping OpenAI audio")
+                _lastResponse.value = _lastResponse.value?.copy(
+                    audioData = audioData
+                ) ?: Response("", audioData)
+            } else {
+                // Play OpenAI audio for English
+                Log.d(TAG, "Playing OpenAI audio response (English mode)")
+                audioStreamManager.playAudio(audioData)
+                
+                // Update last response
+                _lastResponse.value = _lastResponse.value?.copy(
+                    audioData = audioData
+                ) ?: Response("", audioData)
+                
+                // Wait for playback to complete
+                while (audioStreamManager.isPlaying.value) {
+                    delay(100)
+                }
+            }
+            
+            _state.value = IntegrationState.LISTENING
+            _isProcessing.value = false
+        }
+    }
+    
+    /**
+     * Handle text response from Realtime API (audio conversation)
+     */
+    private fun handleTextResponse(text: String) {
+        coroutineScope.launch {
+            Log.d(TAG, "handleTextResponse called with: ${text.take(100)}...")
+            
+            // 🔥 HYBRID LOGIC: Check if user is asking about images
+            if (isImageQuestion(text)) {
+                Log.d(TAG, "🎯 Image question detected! Switching to GPT-4V...")
+                handleImageQuestion(text)
+                return@launch
+            }
+            
+            // For Realtime conversations, don't show text - just handle voice
+            // Comment out text update for voice-only conversation
+            // _lastResponse.value = Response(text)
+            
+            val isKorean = realtimeClient.isKoreanMode()
+            Log.d(TAG, "Korean mode: $isKorean")
+            
+            // Korean mode: Use OpenAI TTS for Korean responses
+            if (isKorean) {
+                // Set VoiceManager to Korean mode and speak with OpenAI TTS
+                voiceManager.setLanguage(true)
+                voiceManager.speak(text)  // This will use OpenAI TTS
+                
+                Log.d(TAG, "Korean mode: Sent to VoiceManager for OpenAI TTS")
+                
+                _state.value = IntegrationState.RESPONDING
+                // Wait for TTS to complete
+                while (voiceManager.isSpeaking.value) {
+                    delay(100)
+                }
+                _state.value = IntegrationState.LISTENING
+                _isProcessing.value = false
+            } else if (forceAndroidTts) {
+                // English mode but forced to use Android TTS
+                _state.value = IntegrationState.RESPONDING
+                
+                voiceManager.setLanguage(false)  // English
+                voiceManager.speak(text)
+                
+                Log.d(TAG, "English mode: Using Android TTS (forced)")
+                
+                // Wait for TTS to complete
+                while (voiceManager.isSpeaking.value) {
+                    delay(100)
+                }
+                
+                _state.value = IntegrationState.LISTENING
+                _isProcessing.value = false
+            } else if (_state.value != IntegrationState.RESPONDING) {
+                // English mode: OpenAI audio should handle it
+                // This text is just for logging/display
+                // Only use TTS as fallback if no audio was received
+                Log.d(TAG, "English mode: Text received, audio should be playing from OpenAI")
+                
+                // Small delay to check if audio is playing
+                delay(500)
+                
+                // If still not responding, use TTS as fallback
+                if (_state.value != IntegrationState.RESPONDING && !audioStreamManager.isPlaying.value) {
+                    Log.w(TAG, "No audio playing, using Android TTS as fallback")
+                    _state.value = IntegrationState.RESPONDING
+                    voiceManager.setLanguage(false)  // English
+                    voiceManager.speak(text)
+                    
+                    // Wait for TTS to complete
+                    while (voiceManager.isSpeaking.value) {
+                        delay(100)
+                    }
+                    
+                    _state.value = IntegrationState.LISTENING
+                    _isProcessing.value = false
+                }
+            }
+        }
+    }
+    
+    /**
+     * Handle vision response from Chat Completions API
+     */
+    private fun handleVisionResponse(text: String) {
+        coroutineScope.launch {
+            Log.d(TAG, "Vision analysis result: ${text.take(200)}...")
+            
+            // 🔥 CLEAN APPROACH: Let handleTextResponse handle TTS to avoid conflicts
+            // Set flag to prevent duplicate TTS calls
+            _isProcessing.value = true
+            
+            // Send vision result as text response (single path for TTS)
+            handleTextResponse(text)
+            
+            // Also send to Realtime API as context for follow-up questions
+            val contextMessage = if (realtimeClient.isKoreanMode()) {
+                "이미지 분석 결과: $text\n\n추가 질문이 있으면 자연스럽게 답변해 주세요."
+            } else {
+                "Image analysis result: $text\n\nPlease answer naturally if there are follow-up questions."
+            }
+            
+            delay(2000) // Wait for TTS to start
+            realtimeClient.sendTextMessage(contextMessage)
+            Log.d(TAG, "Vision analysis sent to Realtime API for follow-up context")
+        }
+    }
+    
+    /**
+     * Handle errors
+     */
+    private fun handleError(error: String) {
+        Log.e(TAG, "Integration error: $error")
+        _state.value = IntegrationState.ERROR
+        _isProcessing.value = false
+        
+        // Notify user via TTS
+        voiceManager.speak("An error occurred: $error")
+    }
+    
+    /**
+     * 🔥 HYBRID LOGIC: Check if user message contains image-related keywords
+     */
+    private fun isImageQuestion(text: String): Boolean {
+        val lowerText = text.lowercase()
+        val imageKeywords = listOf(
+            // Korean image keywords
+            "이미지", "사진", "화면", "보여", "뭐가", "무엇이", "뭐", "색깔", "컬러", "물체", "객체", "보이는", "보이네", "찍힌",
+            // English image keywords  
+            "image", "picture", "photo", "see", "look", "what", "show", "color", "object", "visible", "camera", "view"
+        )
+        
+        return imageKeywords.any { keyword -> lowerText.contains(keyword) }
+    }
+    
+    /**
+     * 🎯 Handle image question by capturing current frame and analyzing
+     */
+    private fun handleImageQuestion(userQuestion: String) {
+        coroutineScope.launch {
+            try {
+                Log.d(TAG, "🎥 Capturing current frame for image analysis...")
+                _state.value = IntegrationState.PROCESSING
+                
+                // Capture current camera frame
+                val jpegData = camera2Manager.captureCurrentFrameAsJpeg()
+                if (jpegData == null) {
+                    val errorMsg = if (realtimeClient.isKoreanMode()) {
+                        "카메라에서 이미지를 가져올 수 없어요. 다시 시도해주세요."
+                    } else {
+                        "Cannot capture image from camera. Please try again."
+                    }
+                    voiceManager.speak(errorMsg)
+                    _state.value = IntegrationState.LISTENING
+                    return@launch
+                }
+                
+                // Convert to bitmap and analyze
+                val bitmap = BitmapFactory.decodeByteArray(jpegData, 0, jpegData.size)
+                
+                // Create context-aware prompt combining user question
+                val visionPrompt = if (realtimeClient.isKoreanMode()) {
+                    "사용자가 \"$userQuestion\"라고 물어봤습니다. 이 이미지를 보고 자연스럽게 답변해주세요."
+                } else {
+                    "The user asked: \"$userQuestion\". Please look at this image and respond naturally."
+                }
+                
+                Log.d(TAG, "🎯 Analyzing image with GPT-4V for question: ${userQuestion.take(50)}...")
+                visionAnalyzer.analyzeImage(bitmap, visionPrompt, VisionAnalyzer.MODE_GENERAL, realtimeClient.isKoreanMode())
+                
+            } catch (e: Exception) {
+                Log.e(TAG, "Error handling image question: ${e.message}")
+                val errorMsg = if (realtimeClient.isKoreanMode()) {
+                    "이미지 분석 중 오류가 발생했어요."
+                } else {
+                    "An error occurred during image analysis."
+                }
+                voiceManager.speak(errorMsg)
+                _state.value = IntegrationState.LISTENING
+            }
+        }
+    }
+    
+    /**
+     * Generate context prompt for vision analysis
+     */
+    private fun generateContextPrompt(): String {
+        val isKorean = realtimeClient.isKoreanMode()
+        return if (isKorean) {
+            """
+                AR 안경에서 본 이미지를 분석해주세요.
+                중앙의 십자선은 사용자가 주목하는 지점입니다.
+                이미지, 특히 중앙 부분에 대한 유용한 정보를 한국어로만 제공해주세요.
+                AR 안경 상호작용에 적합하게 간결하고 관련성 있게 답변해주세요.
+                반드시 한국어로만 응답하세요. 영어는 사용하지 마세요.
+            """.trimIndent()
+        } else {
+            """
+                Analyze this image from AR glasses.
+                The crosshair in the center indicates the user's focus point.
+                Provide helpful information about what you see, especially around the center of the image.
+                Be concise and relevant to AR glass interaction.
+            """.trimIndent()
+        }
+    }
+    
+    /**
+     * Convert YUV frame data to JPEG
+     */
+    private fun convertYuvToJpeg(yuvData: ByteArray): ByteArray {
+        // Assuming NV21 format from camera
+        val width = 640 // Default width, should be obtained from camera
+        val height = 480 // Default height, should be obtained from camera
+        
+        val yuvImage = YuvImage(yuvData, ImageFormat.NV21, width, height, null)
+        val outputStream = ByteArrayOutputStream()
+        
+        yuvImage.compressToJpeg(
+            Rect(0, 0, width, height),
+            IMAGE_QUALITY,
+            outputStream
+        )
+        
+        return outputStream.toByteArray()
+    }
+    
+    /**
+     * Resize image if it exceeds maximum dimensions
+     */
+    private fun resizeImageIfNeeded(imageData: ByteArray): ByteArray {
+        val bitmap = BitmapFactory.decodeByteArray(imageData, 0, imageData.size)
+        
+        if (bitmap.width <= MAX_IMAGE_SIZE && bitmap.height <= MAX_IMAGE_SIZE) {
+            return imageData
+        }
+        
+        // Calculate new dimensions maintaining aspect ratio
+        val aspectRatio = bitmap.width.toFloat() / bitmap.height.toFloat()
+        val newWidth: Int
+        val newHeight: Int
+        
+        if (bitmap.width > bitmap.height) {
+            newWidth = MAX_IMAGE_SIZE
+            newHeight = (MAX_IMAGE_SIZE / aspectRatio).toInt()
+        } else {
+            newHeight = MAX_IMAGE_SIZE
+            newWidth = (MAX_IMAGE_SIZE * aspectRatio).toInt()
+        }
+        
+        // Resize bitmap
+        val resizedBitmap = Bitmap.createScaledBitmap(bitmap, newWidth, newHeight, true)
+        
+        // Convert back to JPEG
+        val outputStream = ByteArrayOutputStream()
+        resizedBitmap.compress(Bitmap.CompressFormat.JPEG, IMAGE_QUALITY, outputStream)
+        
+        bitmap.recycle()
+        resizedBitmap.recycle()
+        
+        return outputStream.toByteArray()
+    }
+    
+    /**
+     * Change the TTS voice
+     * Available voices: "alloy", "echo", "fable", "onyx", "nova", "shimmer"
+     */
+    fun setVoice(voice: String) {
+        if (voice in RealtimeVisionClient.AVAILABLE_VOICES) {
+            realtimeClient.setVoice(voice)
+            Log.d(TAG, "Voice changed to: $voice")
+        } else {
+            Log.w(TAG, "Invalid voice: $voice")
+        }
+    }
+    
+    /**
+     * Get available voice options
+     */
+    fun getAvailableVoices(): List<String> = RealtimeVisionClient.AVAILABLE_VOICES
+    
+    /**
+     * Get current voice
+     */
+    fun getCurrentVoice(): String = realtimeClient.getCurrentVoice()
+    
+    /**
+     * Set language mode (Korean or English)
+     */
+    fun setLanguageMode(useKorean: Boolean) {
+        realtimeClient.setLanguageMode(useKorean)
+        // VisionAnalyzer language is set per request, no need to configure here
+        Log.d(TAG, "Language mode set to: ${if (useKorean) "Korean (한국어)" else "English"}")
+        Log.i(TAG, "Hybrid system configured - Realtime: audio conversation, Vision: image analysis")
+    }
+    
+    /**
+     * Check if Korean mode is enabled
+     */
+    fun isKoreanMode(): Boolean = realtimeClient.isKoreanMode()
+    
+    /**
+     * Configure TTS preferences
+     * @param useAndroidForKorean Use Android TTS for Korean responses (recommended)
+     * @param forceAndroid Force Android TTS for all languages
+     */
+    fun configureTts(useAndroidForKorean: Boolean = true, forceAndroid: Boolean = false) {
+        useAndroidTtsForKorean = useAndroidForKorean
+        forceAndroidTts = forceAndroid
+        
+        Log.d(TAG, "TTS Configuration: AndroidForKorean=$useAndroidForKorean, ForceAndroid=$forceAndroid")
+        
+        // Update VoiceManager settings
+        if (useAndroidForKorean && isKoreanMode()) {
+            voiceManager.setLanguage(true)  // Korean
+            voiceManager.setSpeechRate(0.95f)  // Slightly slower for clarity
+        }
+    }
+    
+    /**
+     * Get current TTS configuration
+     */
+    fun getTtsConfiguration(): Pair<Boolean, Boolean> {
+        return Pair(useAndroidTtsForKorean, forceAndroidTts)
+    }
+    
+    /**
+     * Clean up resources
+     */
+    fun release() {
+        stopSession()
+        audioStreamManager.release()
+        realtimeClient.destroy()
+        visionAnalyzer.destroy()  // Clean up vision analyzer
+        coroutineScope.cancel()
+        
+        Log.d(TAG, "VisionIntegration released")
+    }
+    
+    /**
+     * Determine the best analysis mode based on query content
+     */
+    private fun determineAnalysisMode(query: String): String {
+        val lowerQuery = query.lowercase()
+        
+        // Color-related keywords
+        val colorKeywords = listOf(
+            "색상", "색깔", "색", "빨간", "파란", "노란", "초록", "검은", "흰", "보라", "분홍", 
+            "color", "red", "blue", "yellow", "green", "black", "white", "purple", "pink",
+            "무슨색", "어떤색", "what color"
+        )
+        
+        // Text-related keywords  
+        val textKeywords = listOf(
+            "글자", "텍스트", "문자", "읽", "써있", "text", "read", "written", "글씨"
+        )
+        
+        // Object detection keywords
+        val objectKeywords = listOf(
+            "무엇", "뭐가", "물체", "물건", "what", "object", "thing", "있는지", "보이는"
+        )
+        
+        // Scene understanding keywords
+        val sceneKeywords = listOf(
+            "어디", "장소", "상황", "where", "scene", "situation", "여기가", "이곳"
+        )
+        
+        return when {
+            colorKeywords.any { lowerQuery.contains(it) } -> {
+                Log.d(TAG, "Color query detected: $query")
+                VisionAnalyzer.MODE_COLOR_ANALYSIS
+            }
+            textKeywords.any { lowerQuery.contains(it) } -> {
+                Log.d(TAG, "Text query detected: $query") 
+                VisionAnalyzer.MODE_TEXT_READING
+            }
+            objectKeywords.any { lowerQuery.contains(it) } -> {
+                Log.d(TAG, "Object query detected: $query")
+                VisionAnalyzer.MODE_OBJECT_DETECTION
+            }
+            sceneKeywords.any { lowerQuery.contains(it) } -> {
+                Log.d(TAG, "Scene query detected: $query")
+                VisionAnalyzer.MODE_SCENE_UNDERSTANDING
+            }
+            else -> {
+                Log.d(TAG, "General query: $query")
+                VisionAnalyzer.MODE_GENERAL
+            }
+        }
+    }
+}

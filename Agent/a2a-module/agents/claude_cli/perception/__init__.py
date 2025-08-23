@@ -1,0 +1,1 @@
+"""Frontend Agent for Claude CLI Multi-Agent System"""

@@ -1,0 +1,60 @@
+{
+    "name": "Unity Game Development Agent",
+    "description": "Expert in Unity Engine, C# game programming, and game development",
+    "url": "http://localhost:8012/",
+    "version": "1.0.0",
+    "capabilities": {
+        "streaming": true,
+        "pushNotifications": true,
+        "stateTransitionHistory": false
+    },
+    "defaultInputModes": [
+        "text",
+        "text/plain"
+    ],
+    "defaultOutputModes": [
+        "text",
+        "text/plain"
+    ],
+    "skills": [
+        {
+            "id": "gameplay_programming",
+            "name": "Gameplay Programming",
+            "description": "Character controllers, game mechanics, physics, input systems in Unity C#.",
+            "tags": [
+                "unity", "csharp", "gameplay", "physics", "input", "character-controller"
+            ],
+            "examples": [
+                "Create third-person character controller",
+                "Implement inventory system with drag-drop",
+                "Build platformer game mechanics"
+            ]
+        },
+        {
+            "id": "graphics_optimization",
+            "name": "Graphics & Optimization",
+            "description": "Shaders, URP/HDRP, mobile optimization, performance profiling.",
+            "tags": [
+                "shaders", "urp", "hdrp", "mobile", "optimization", "performance"
+            ],
+            "examples": [
+                "Create custom water shader",
+                "Optimize mobile game for 60 FPS",
+                "Implement object pooling system"
+            ]
+        },
+        {
+            "id": "multiplayer_systems",
+            "name": "Multiplayer & Networking",
+            "description": "Mirror, Netcode for GameObjects, client-server architecture.",
+            "tags": [
+                "multiplayer", "networking", "mirror", "netcode", "server", "synchronization"
+            ],
+            "examples": [
+                "Implement multiplayer lobby system",
+                "Create networked player synchronization",
+                "Build real-time leaderboard system"
+            ]
+        }
+    ]
+}

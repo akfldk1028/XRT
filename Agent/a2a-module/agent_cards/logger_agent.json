@@ -1,0 +1,62 @@
+{
+    "name": "Logger Agent",
+    "description": "Advanced logging and monitoring specialist for Google Glass (Android XR) applications",
+    "url": "http://localhost:8033/",
+    "version": "1.0.0",
+    "capabilities": {
+        "streaming": true,
+        "pushNotifications": true,
+        "stateTransitionHistory": true
+    },
+    "defaultInputModes": [
+        "text",
+        "text/plain",
+        "application/json"
+    ],
+    "defaultOutputModes": [
+        "text",
+        "text/plain",
+        "application/json"
+    ],
+    "skills": [
+        {
+            "id": "advanced_logging",
+            "name": "Advanced Logging Systems",
+            "description": "Structured logging with Logback, SLF4J, and custom appenders for XR applications.",
+            "tags": [
+                "logback", "slf4j", "structured-logging", "json-logging", "xr"
+            ],
+            "examples": [
+                "Implement structured JSON logging for XR apps",
+                "Create custom Logback appenders for remote logging",
+                "Set up centralized logging with Elasticsearch"
+            ]
+        },
+        {
+            "id": "performance_monitoring",
+            "name": "Performance Monitoring",
+            "description": "Real-time performance tracking, metrics collection, and system health monitoring.",
+            "tags": [
+                "performance", "metrics", "monitoring", "health-check", "alerting"
+            ],
+            "examples": [
+                "Monitor XR app performance and frame rates",
+                "Track API response times and error rates",
+                "Implement system health monitoring with alerts"
+            ]
+        },
+        {
+            "id": "analytics_integration",
+            "name": "Analytics & Telemetry",
+            "description": "User analytics, crash reporting, and telemetry data collection for XR applications.",
+            "tags": [
+                "analytics", "telemetry", "crash-reporting", "user-behavior", "insights"
+            ],
+            "examples": [
+                "Integrate Firebase Analytics for XR user behavior",
+                "Set up crash reporting with Crashlytics",
+                "Collect telemetry data for XR interaction patterns"
+            ]
+        }
+    ]
+}

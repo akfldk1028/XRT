@@ -1,0 +1,63 @@
+{
+    "name": "UX & TTS Agent",
+    "description": "Crosshair UI implementation and TTS audio responses for Android XR Glass Q&A system",
+    "url": "http://localhost:8032/",
+    "version": "1.0.0",
+    "capabilities": {
+        "streaming": true,
+        "pushNotifications": true,
+        "stateTransitionHistory": false
+    },
+    "defaultInputModes": [
+        "text",
+        "text/plain",
+        "application/json"
+    ],
+    "defaultOutputModes": [
+        "text",
+        "text/plain",
+        "audio/wav",
+        "audio/mp3"
+    ],
+    "skills": [
+        {
+            "id": "xr_ux_design",
+            "name": "XR User Experience Design",
+            "description": "Crosshair targeting overlay, object highlighting UI, and voice interaction patterns for AR Glass.",
+            "tags": [
+                "material-design", "jetpack-compose", "xr-ui", "hud", "spatial-ui"
+            ],
+            "examples": [
+                "Implement crosshair targeting system in center of AR display",
+                "Design object highlighting and selection feedback UI",
+                "Create voice prompt interface for object questioning"
+            ]
+        },
+        {
+            "id": "tts_integration",
+            "name": "Text-to-Speech Integration",
+            "description": "Android TTS, Google Cloud TTS, and ElevenLabs for natural voice synthesis in XR.",
+            "tags": [
+                "android-tts", "google-cloud-tts", "elevenlabs", "voice-synthesis", "audio"
+            ],
+            "examples": [
+                "Convert GPT-4V responses to natural speech for AR Glass",
+                "Implement streaming TTS for real-time Q&A responses",
+                "Context-aware voice responses about targeted objects"
+            ]
+        },
+        {
+            "id": "interaction_design",
+            "name": "XR Interaction Design",
+            "description": "Voice commands, gesture controls, and multimodal interaction patterns for XR environments.",
+            "tags": [
+                "voice-commands", "gesture-control", "multimodal", "accessibility", "interaction"
+            ],
+            "examples": [
+                "Design voice question interface for object analysis",
+                "Implement hands-free crosshair targeting with voice commands",
+                "Create seamless voice Q&A workflow for AR Glass users"
+            ]
+        }
+    ]
+}

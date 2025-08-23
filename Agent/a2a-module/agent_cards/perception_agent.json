@@ -1,0 +1,69 @@
+{
+    "name": "Perception Agent",
+    "description": "Camera2 API integration, crosshair targeting system, and ROI extraction for Android XR Glass apps",
+    "url": "http://localhost:8030/",
+    "version": "1.0.0",
+    "capabilities": {
+        "streaming": true,
+        "pushNotifications": true,
+        "stateTransitionHistory": false
+    },
+    "defaultInputModes": [
+        "text",
+        "text/plain",
+        "image/jpeg",
+        "image/png",
+        "application/json",
+        "camera/frame",
+        "sensor/data"
+    ],
+    "defaultOutputModes": [
+        "text",
+        "text/plain",
+        "application/json",
+        "image/jpeg"
+    ],
+    "skills": [
+        {
+            "id": "computer_vision",
+            "name": "Computer Vision Processing",
+            "description": "OpenCV, MediaPipe, TensorFlow Lite for real-time image processing and object detection in XR.",
+            "tags": [
+                "opencv", "mediapipe", "tensorflow-lite", "object-detection", "image-processing"
+            ],
+            "examples": [
+                "Camera2 API integration for real-time Google Glass feed",
+                "Crosshair overlay targeting system implementation",
+                "Object detection within crosshair region using TensorFlow Lite",
+                "Camera permission handling for Android XR apps"
+            ]
+        },
+        {
+            "id": "sensor_fusion",
+            "name": "Sensor Data Fusion",
+            "description": "IMU, camera, and environmental sensor integration for spatial understanding.",
+            "tags": [
+                "imu", "sensor-fusion", "spatial-tracking", "slam", "pose-estimation"
+            ],
+            "examples": [
+                "Fuse IMU and camera data for accurate head tracking",
+                "Implement SLAM for spatial mapping in XR",
+                "Real-time pose estimation for object placement"
+            ]
+        },
+        {
+            "id": "roi_extraction",
+            "name": "ROI Extraction & Preprocessing",
+            "description": "Region of Interest detection and image preprocessing for downstream AI analysis.",
+            "tags": [
+                "roi", "preprocessing", "image-segmentation", "feature-extraction"
+            ],
+            "examples": [
+                "Extract crosshair-targeted ROI from Camera2 feed",
+                "Crop and enhance center-focused object regions",
+                "Preprocess targeted objects for GPT-4V analysis",
+                "Real-time ROI extraction based on user gaze/crosshair position"
+            ]
+        }
+    ]
+}

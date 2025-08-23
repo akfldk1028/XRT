@@ -1,0 +1,63 @@
+{
+    "name": "Vision AI Agent",
+    "description": "GPT-4V Realtime API integration for targeted object analysis in Android XR Glass applications",
+    "url": "http://localhost:8031/",
+    "version": "1.0.0",
+    "capabilities": {
+        "streaming": true,
+        "pushNotifications": true,
+        "stateTransitionHistory": false
+    },
+    "defaultInputModes": [
+        "text",
+        "text/plain",
+        "image/jpeg",
+        "image/png"
+    ],
+    "defaultOutputModes": [
+        "text",
+        "text/plain",
+        "application/json"
+    ],
+    "skills": [
+        {
+            "id": "vlm_processing",
+            "name": "Vision Language Model Processing",
+            "description": "Analyze crosshair-targeted objects using GPT-4V Realtime API for instant Q&A responses in XR.",
+            "tags": [
+                "vlm", "gpt-4v", "moondream", "qwen", "scene-analysis", "xr"
+            ],
+            "examples": [
+                "Analyze targeted objects from crosshair ROI using GPT-4V",
+                "Process user questions about specific objects via GPT Realtime API",
+                "Instant object identification and Q&A responses for AR Glass"
+            ]
+        },
+        {
+            "id": "multimodal_processing",
+            "name": "Multimodal AI Processing",
+            "description": "Combine visual, textual, and contextual data for comprehensive XR understanding.",
+            "tags": [
+                "multimodal", "context-aware", "conversation", "xr-integration"
+            ],
+            "examples": [
+                "Context-aware object analysis with conversation memory",
+                "Multi-turn Q&A about targeted objects in real-time",
+                "Combine visual analysis with user voice queries"
+            ]
+        },
+        {
+            "id": "real_time_optimization",
+            "name": "Real-time Processing Optimization",
+            "description": "Low-latency vision processing optimized for XR performance requirements.",
+            "tags": [
+                "real-time", "optimization", "caching", "performance", "mobile"
+            ],
+            "examples": [
+                "Optimize GPT-4V responses for <1s latency in AR",
+                "Implement streaming responses via GPT Realtime API",
+                "Real-time object analysis with voice interaction support"
+            ]
+        }
+    ]
+}
