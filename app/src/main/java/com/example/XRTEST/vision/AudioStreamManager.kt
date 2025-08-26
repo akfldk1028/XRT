@@ -54,6 +54,10 @@ class AudioStreamManager(
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
     
+    // Context7: Prevent feedback loop during TTS playback
+    private val _isMuted = MutableStateFlow(false)
+    val isMuted: StateFlow<Boolean> = _isMuted.asStateFlow()
+    
     private val _audioLevel = MutableStateFlow(0f)
     val audioLevel: StateFlow<Float> = _audioLevel.asStateFlow()
     
@@ -191,30 +195,72 @@ class AudioStreamManager(
      * Start audio recording
      */
     fun startRecording() {
+        Log.d(TAG, "🎤 Context7: startRecording() called")
+        Log.d(TAG, "🎤   - Current recording state: ${_isRecording.value}")
+        Log.d(TAG, "🎤   - AudioRecord instance: ${if (audioRecord != null) "EXISTS" else "NULL"}")
+        
         if (_isRecording.value) {
-            Log.w(TAG, "Already recording")
+            Log.w(TAG, "⚠️ Already recording, skipping")
             return
         }
         
-        if (audioRecord == null && !initializeRecording()) {
-            Log.e(TAG, "Cannot start recording: AudioRecord not initialized")
-            return
+        if (audioRecord == null) {
+            Log.d(TAG, "🎤 AudioRecord is null, attempting initialization...")
+            if (!initializeRecording()) {
+                Log.e(TAG, "❌ CRITICAL: AudioRecord initialization failed!")
+                Log.e(TAG, "❌ Voice recognition will NOT work!")
+                return
+            }
         }
+        
+        Log.d(TAG, "🎤 AudioRecord ready, starting recording thread...")
         
         recordingJob = coroutineScope.launch {
             try {
+                Log.d(TAG, "🎤 Starting AudioRecord.startRecording()...")
                 audioRecord?.startRecording()
                 _isRecording.value = true
-                Log.d(TAG, "Recording started - 24kHz PCM16 for OpenAI Realtime API")
+                Log.d(TAG, "✅ Context7: Recording started - 24kHz PCM16 for OpenAI Realtime API")
+                Log.d(TAG, "🎤 Entering recording loop, buffer size: ${audioBuffer.size}")
+                
+                var loopCount = 0
                 
                 while (isActive && _isRecording.value) {
                     try {
                         val bytesRead = audioRecord?.read(audioBuffer, 0, audioBuffer.size) ?: 0
+                        loopCount++
+                        
+                        if (loopCount == 1) {
+                            Log.d(TAG, "🎤 First audio buffer read: $bytesRead bytes")
+                        }
+                        
+                        if (loopCount % 100 == 0) {  // Log every 100 iterations
+                            Log.d(TAG, "🎤 Audio loop active: iteration $loopCount, last read: $bytesRead bytes")
+                        }
+                        
+                        // Context7: Critical - Check if AudioRecord stopped reading
+                        if (bytesRead == 0) {
+                            Log.w(TAG, "⚠️ Context7: AudioRecord returned 0 bytes - checking state...")
+                            Log.w(TAG, "⚠️ AudioRecord state: ${audioRecord?.state}")
+                            Log.w(TAG, "⚠️ Recording state: ${audioRecord?.recordingState}")
+                            
+                            // If we get multiple consecutive 0 reads, something is wrong
+                            if (loopCount > 100 && bytesRead == 0) {
+                                Log.e(TAG, "❌ Context7: AudioRecord may have failed - consider reinitializing")
+                            }
+                        }
                         
                         if (bytesRead > 0 && bytesRead <= audioBuffer.size) {
                             // Context7: Use safe array copy for Realtime API
                             val audioChunk = ByteArray(bytesRead)
                             System.arraycopy(audioBuffer, 0, audioChunk, 0, bytesRead)
+                            
+                            // Context7: Check if muted (during TTS playback to prevent feedback)
+                            if (_isMuted.value) {
+                                // Muted - don't send audio but continue recording
+                                _audioLevel.value = 0f
+                                continue
+                            }
                             
                             // Process audio for OpenAI Realtime API
                             val processedAudio = processAudioInput(audioChunk)
@@ -222,6 +268,13 @@ class AudioStreamManager(
                             // Calculate audio level for UI feedback
                             val level = calculateAudioLevel(processedAudio)
                             _audioLevel.value = level
+                            
+                            // Context7: Log microphone input parsing status
+                            if (loopCount % 500 == 0) { // Every 5 seconds approximately
+                                Log.d(TAG, "🎤 [마이크] 음성 데이터 파싱 중: $bytesRead bytes → OpenAI Realtime API 전송")
+                                Log.d(TAG, "🎤 [마이크] 총 $loopCount 번의 오디오 버퍼 처리됨")
+                                Log.d(TAG, "🎤 [마이크] OpenAI 음성 인식 대기 중... (Server VAD 활성화)")
+                            }
                             
                             // Context7: Send ALL audio data to Realtime API (not just above threshold)
                             // The API needs continuous stream for proper voice detection
@@ -461,6 +514,14 @@ class AudioStreamManager(
     /**
      * Release all audio resources
      */
+    /**
+     * Context7: Mute microphone during TTS playback to prevent feedback
+     */
+    fun setMuted(muted: Boolean) {
+        _isMuted.value = muted
+        Log.d(TAG, "🔇 Context7: Microphone ${if (muted) "MUTED" else "UNMUTED"} (feedback prevention)")
+    }
+    
     fun release() {
         stopRecording()
         stopPlayback()

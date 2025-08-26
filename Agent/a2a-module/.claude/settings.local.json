@@ -10,12 +10,16 @@
       "Bash(./gradlew:*)",
       "Bash(adb logcat:*)",
       "mcp__sequential-thinking__sequentialthinking",
-      "Bash(adb shell am force-stop:*)"
+      "Bash(adb shell am force-stop:*)",
+      "Bash(adb shell:*)",
+      "Bash(timeout 5 adb logcat:*)",
+      "Bash(adb install:*)"
     ],
     "deny": [],
     "ask": [],
     "additionalDirectories": [
-      "D:\\Data\\05_CGXR\\Android\\XRTEST"
+      "D:\\Data\\05_CGXR\\Android\\XRTEST",
+      "D:\\"
     ]
   }
 }

@@ -242,9 +242,15 @@ class OpenAITtsManager(
                     val chunkSize = 1024
                     var offset = 0
                     
-                    while (offset < audioData.size && _isSpeaking.value) {
+                    while (offset < audioData.size && _isSpeaking.value && playState == AudioTrack.PLAYSTATE_PLAYING) {
                         val remainingBytes = audioData.size - offset
                         val bytesToWrite = minOf(chunkSize, remainingBytes)
+                        
+                        // Context7: Check AudioTrack state before writing
+                        if (state != AudioTrack.STATE_INITIALIZED) {
+                            Log.w(TAG, "🔄 Context7: AudioTrack not initialized, stopping write")
+                            break
+                        }
                         
                         val bytesWritten = write(audioData, offset, bytesToWrite)
                         if (bytesWritten < 0) {
@@ -262,14 +268,35 @@ class OpenAITtsManager(
                     
                     Log.d(TAG, "✅ Context7: PCM data streaming completed")
                     
-                    // Wait for playback to finish
-                    while (playbackHeadPosition < audioData.size / 2 && _isSpeaking.value) {
+                    // Wait for playback to finish - Context7: Safe position checking
+                    while (_isSpeaking.value) {
+                        try {
+                            if (state != AudioTrack.STATE_INITIALIZED || playState != AudioTrack.PLAYSTATE_PLAYING) {
+                                break
+                            }
+                            val currentPos = playbackHeadPosition
+                            if (currentPos >= audioData.size / 2) {
+                                break
+                            }
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Context7: Unable to get playback position, assuming playback complete")
+                            break
+                        }
                         kotlinx.coroutines.delay(50)
                     }
                     
-                    // Clean stop
-                    stop()
-                    release()
+                    // Context7: Safe cleanup only if AudioTrack is still valid
+                    try {
+                        if (state == AudioTrack.STATE_INITIALIZED && playState == AudioTrack.PLAYSTATE_PLAYING) {
+                            stop()
+                        }
+                        if (state == AudioTrack.STATE_INITIALIZED) {
+                            release()
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Context7: AudioTrack cleanup warning: ${e.message}")
+                    }
+                    
                     audioTrack = null
                     
                     withContext(Dispatchers.Main) {
@@ -295,16 +322,22 @@ class OpenAITtsManager(
     fun stop() {
         Log.d(TAG, "🛑 Context7: Stopping TTS (PCM AudioTrack mode)")
         
-        // 1. Cancel ongoing jobs
-        playbackJob?.cancel()
+        // 1. Stop speech flag first to prevent new writes
+        _isSpeaking.value = false
         
-        // 2. Context7: Clean AudioTrack shutdown
+        // 2. Cancel ongoing jobs
+        playbackJob?.cancel()
+        playbackJob = null
+        
+        // 3. Context7: Clean AudioTrack shutdown
         audioTrack?.apply {
             try {
-                if (playState == AudioTrack.PLAYSTATE_PLAYING) {
+                if (state == AudioTrack.STATE_INITIALIZED && playState == AudioTrack.PLAYSTATE_PLAYING) {
                     stop()
                 }
-                release()
+                if (state == AudioTrack.STATE_INITIALIZED) {
+                    release()
+                }
                 Log.d(TAG, "✅ Context7: AudioTrack properly released")
             } catch (e: Exception) {
                 Log.w(TAG, "⚠️ Context7: AudioTrack cleanup warning: ${e.message}")
@@ -312,8 +345,6 @@ class OpenAITtsManager(
         }
         audioTrack = null
         
-        // 3. Update state
-        _isSpeaking.value = false
         Log.d(TAG, "🎤 Context7: TTS stopped (PCM mode)")
     }
     

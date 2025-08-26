@@ -7,6 +7,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
 import org.json.JSONArray
 import org.json.JSONObject
+import okhttp3.*
 import kotlin.math.min
 
 /**
@@ -55,21 +56,41 @@ class RealtimeVisionClient(
     private var messageCollectorJob: Job? = null
     private var errorCollectorJob: Job? = null
     
+    // Context7: ChatGPT-style conversation state management
+    private val _isResponseInProgress = MutableStateFlow(false)
+    val isResponseInProgress: StateFlow<Boolean> = _isResponseInProgress.asStateFlow()
+    
+    private val _canInterrupt = MutableStateFlow(true)
+    val canInterrupt: StateFlow<Boolean> = _canInterrupt.asStateFlow()
+    
     // Text accumulation for complete responses
     private val currentTextBuilder = StringBuilder()
+    private var currentResponseId: String? = null
+    
+    // Context7: Track conversation items like real ChatGPT Voice
+    private val conversationItems = mutableListOf<JSONObject>()
     
     init {
         setupWebSocketManager()
     }
     
     /**
-     * Setup WebSocket Manager with OpenAI Realtime API configuration
+     * Context7: Setup WebSocket Manager with ChatGPT Voice-style real-time conversation
      */
     private fun setupWebSocketManager() {
+        Log.d(TAG, "🔗 Context7: Setting up ChatGPT Voice-style WebSocket connection...")
+        Log.d(TAG, "🔗 Realtime API URL: $REALTIME_API_URL")
+        Log.d(TAG, "🔗 Model: $MODEL")
+        Log.d(TAG, "🔗 API Key length: ${apiKey.length} characters")
+        
         val headers = mapOf(
             "Authorization" to "Bearer $apiKey",
             "OpenAI-Beta" to "realtime=v1"
         )
+        
+        Log.d(TAG, "🔗 WebSocket headers configured:")
+        Log.d(TAG, "🔗   - Authorization: Bearer ${apiKey.take(10)}...")
+        Log.d(TAG, "🔗   - OpenAI-Beta: realtime=v1")
         
         val config = WebSocketConfig(
             connectTimeoutMs = 30000,
@@ -82,8 +103,11 @@ class RealtimeVisionClient(
             enableLogging = false
         )
         
+        val fullUrl = "$REALTIME_API_URL?model=$MODEL"
+        Log.d(TAG, "🔗 Full WebSocket URL: $fullUrl")
+        
         webSocketManager = WebSocketManager(
-            url = "$REALTIME_API_URL?model=$MODEL",
+            url = fullUrl,
             headers = headers,
             config = config
         )
@@ -222,13 +246,14 @@ class RealtimeVisionClient(
                 put("input_audio_format", AUDIO_FORMAT)
                 put("output_audio_format", AUDIO_FORMAT)
                 put("input_audio_transcription", JSONObject().apply {
-                    put("model", "whisper-1")
+                    put("model", "whisper-1")  // Context7: Use whisper-1 as recommended in official docs
+                    if (useKorean) put("language", "ko")  // Context7: Explicit Korean language setting
                 })
                 put("turn_detection", JSONObject().apply {
-                    put("type", "server_vad")
-                    put("threshold", 0.5)
-                    put("prefix_padding_ms", 300)
-                    put("silence_duration_ms", 500)
+                    put("type", "server_vad")        // Context7: Server VAD for automatic speech detection
+                    put("threshold", 0.3)            // Context7: Lower threshold = less sensitive
+                    put("prefix_padding_ms", 300)    // Context7: Padding before detected speech
+                    put("silence_duration_ms", 1200) // Context7: ChatGPT Voice-like longer silence (1.2s)
                 })
             })
         }
@@ -324,19 +349,34 @@ class RealtimeVisionClient(
             }
             
             "input_audio_buffer.speech_started" -> {
-                Log.d(TAG, "Speech started")
+                Log.d(TAG, "🎤 Context7: Speech started - audio buffer detecting speech")
             }
             
             "input_audio_buffer.speech_stopped" -> {
-                Log.d(TAG, "Speech stopped")
+                Log.d(TAG, "🎤 Context7: Speech stopped - processing audio transcription")
+            }
+            
+            // Context7: Most important event - actual transcription result
+            "conversation.item.input_audio_transcription.completed" -> {
+                val transcript = event.getString("transcript")
+                val itemId = event.getString("item_id")
+                val contentIndex = event.getInt("content_index")
+                
+                Log.d(TAG, "✅ Context7: Speech transcription completed!")
+                Log.d(TAG, "🎤 Transcript: '$transcript'")
+                Log.d(TAG, "🎤 Item ID: $itemId, Content Index: $contentIndex")
+                
+                // Context7: This is the actual recognized speech - pass to text handler
+                onTextResponse(transcript)
             }
             
             "response.created" -> {
-                Log.d(TAG, "Response generation started")
+                Log.d(TAG, "🔄 Context7: Response generation started")
             }
             
             "response.done" -> {
-                Log.d(TAG, "Response generation completed")
+                Log.d(TAG, "🔄 Context7: Response generation completed - ready for next request")
+                _isResponseInProgress.value = false  // Context7: Reset flag
             }
             
             else -> {
@@ -568,6 +608,14 @@ class RealtimeVisionClient(
      * Request the model to generate a response
      */
     private fun requestResponse() {
+        if (_isResponseInProgress.value) {
+            Log.w(TAG, "🔄 Context7: Response already in progress, skipping request")
+            return
+        }
+        
+        Log.d(TAG, "🔄 Context7: Creating new response...")
+        _isResponseInProgress.value = true
+        
         val event = JSONObject().apply {
             put("type", "response.create")
             // No modalities needed - server uses session configuration

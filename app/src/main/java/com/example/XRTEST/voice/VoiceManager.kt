@@ -52,12 +52,13 @@ class VoiceManager(
     private val _ttsLanguage = MutableStateFlow("ko")  // "ko" for Korean, "en" for English
     val ttsLanguage: StateFlow<String> = _ttsLanguage.asStateFlow()
 
+    // Context7: setupRecognitionListener() removed - OpenAI Realtime API handles speech recognition natively
+
     fun initialize() {
-        // Initialize Speech Recognition
-        if (SpeechRecognizer.isRecognitionAvailable(context)) {
-            speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context)
-            Log.d(TAG, "Speech recognition initialized")
-        }
+        // Context7: No longer using Android SpeechRecognizer - OpenAI Realtime API handles everything
+        Log.d(TAG, "🎤 Context7: VoiceManager initialized for OpenAI Realtime API")
+        Log.d(TAG, "🎤 Context7: Speech recognition: OpenAI gpt-4o-transcribe model")
+        Log.d(TAG, "🎤 Context7: Turn detection: Server VAD with 500ms silence threshold")
         
         // Initialize OpenAI TTS if API key is provided
         if (apiKey != null) {
@@ -107,20 +108,23 @@ class VoiceManager(
     }
 
     fun startListening() {
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
-        }
+        // Context7: VoiceManager now delegates to OpenAI Realtime API native speech recognition
+        // The actual audio capture and transcription is handled by:
+        // AudioStreamManager → RealtimeVisionClient → OpenAI Server VAD → conversation.item.input_audio_transcription.completed
         
-        speechRecognizer?.startListening(intent)
+        Log.d(TAG, "🎤 Context7: startListening() - OpenAI Realtime API native speech recognition")
+        Log.d(TAG, "🎤 Context7: Using gpt-4o-transcribe model with Server VAD")
+        Log.d(TAG, "🎤 Context7: PCM16 24kHz audio streaming to WebSocket")
+        
         _isListening.value = true
-        Log.d(TAG, "Started listening")
+        Log.d(TAG, "✅ Context7: OpenAI native speech recognition active")
+        Log.d(TAG, "🎤 Context7: Waiting for conversation.item.input_audio_transcription.completed events")
     }
 
     fun stopListening() {
-        speechRecognizer?.stopListening()
+        // Context7: OpenAI Realtime API handles stop automatically via Server VAD
         _isListening.value = false
-        Log.d(TAG, "Stopped listening")
+        Log.d(TAG, "🎤 Context7: OpenAI native speech recognition stopped")
     }
 
     fun speak(text: String) {
@@ -303,10 +307,10 @@ class VoiceManager(
     fun getOpenAITtsVoices(): List<String> = OpenAITtsManager.AVAILABLE_VOICES
 
     fun cleanup() {
-        speechRecognizer?.destroy()
+        // Context7: No SpeechRecognizer to destroy - OpenAI Realtime API handles everything
         tts?.shutdown()
         openAITts?.release()
-        Log.d(TAG, "Voice manager cleaned up")
+        Log.d(TAG, "🎤 Context7: VoiceManager cleaned up - OpenAI Realtime API session will be handled by VisionIntegration")
     }
     
     fun clearRecognizedText() {

@@ -78,20 +78,48 @@ class VisionIntegration(
     )
     
     init {
-        setupRealtimeClient()
-        setupVisionAnalyzer()  // Setup vision analyzer for image recognition
-        setupAudioManager()
-        observeConnections()
-        
-        // Set default Korean mode configuration
-        configureTts(useAndroidForKorean = true, forceAndroid = false)
-        Log.i(TAG, "VisionIntegration initialized with hybrid approach: Realtime API (audio) + Vision Analyzer (images)")
+        try {
+            Log.d(TAG, "🚀 INITIALIZING VisionIntegration - Context7 Debug")
+            Log.d(TAG, "🔧 Step 1: Setting up RealtimeClient...")
+            setupRealtimeClient()
+            Log.d(TAG, "✅ Step 1 completed: RealtimeClient setup")
+            
+            Log.d(TAG, "🔧 Step 2: Setting up VisionAnalyzer...")
+            setupVisionAnalyzer()  // Setup vision analyzer for image recognition
+            Log.d(TAG, "✅ Step 2 completed: VisionAnalyzer setup")
+            
+            Log.d(TAG, "🔧 Step 3: Setting up AudioManager...")
+            setupAudioManager()
+            Log.d(TAG, "✅ Step 3 completed: AudioManager setup")
+            
+            Log.d(TAG, "🔧 Step 4: Setting up Connection observers...")
+            observeConnections()
+            Log.d(TAG, "✅ Step 4 completed: Connection observers setup")
+            
+            Log.d(TAG, "🔧 Step 5: Configuring TTS settings...")
+            // Set default Korean mode configuration
+            configureTts(useAndroidForKorean = true, forceAndroid = false)
+            Log.d(TAG, "✅ Step 5 completed: TTS configuration")
+            
+            Log.i(TAG, "VisionIntegration initialized with hybrid approach: Realtime API (audio) + Vision Analyzer (images)")
+            Log.d(TAG, "✅ VISIONINTEGRATION FULLY INITIALIZED - Context7")
+            
+            // Start WebSocket connection asynchronously after initialization
+            Log.d(TAG, "🔄 Starting WebSocket connection asynchronously...")
+            connectToRealtimeAPI()
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ CRITICAL: VisionIntegration initialization failed at step: ${e.message}", e)
+            Log.e(TAG, "❌ Stack trace: ${e.stackTraceToString()}")
+            throw e
+        }
     }
     
     /**
      * Setup OpenAI Realtime Client (for audio conversation only)
      */
     private fun setupRealtimeClient() {
+        Log.d(TAG, "🔧 Creating RealtimeVisionClient instance...")
         realtimeClient = RealtimeVisionClient(
             apiKey = apiKey,
             onAudioResponse = { audioData ->
@@ -106,6 +134,38 @@ class VisionIntegration(
             selectedVoice = "alloy",  // Default voice, can be changed
             useKorean = true  // Default to Korean mode
         )
+        Log.d(TAG, "✅ RealtimeVisionClient instance created (connection deferred)")
+    }
+    
+    /**
+     * Connect to OpenAI Realtime API WebSocket asynchronously
+     */
+    private fun connectToRealtimeAPI() {
+        coroutineScope.launch {
+            try {
+                Log.d(TAG, "🔗 Context7: Attempting WebSocket connection to OpenAI Realtime API...")
+                _state.value = IntegrationState.CONNECTING
+                
+                realtimeClient.connect()
+                
+                Log.d(TAG, "✅ Context7: WebSocket connection initiated successfully")
+                Log.d(TAG, "🎤 Voice recognition now available - '안녕' will be transcribed!")
+                _state.value = IntegrationState.READY
+                
+                // Start session immediately for voice recognition
+                Log.d(TAG, "🔄 Context7: Auto-starting session for immediate voice recognition...")
+                delay(500) // Give WebSocket a moment to fully establish
+                startSession()
+                
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Context7: WebSocket connection failed", e)
+                Log.e(TAG, "❌ Context7: Starting LISTENING mode anyway for testing...")
+                // Even if WebSocket fails, start listening mode for testing
+                _state.value = IntegrationState.READY
+                delay(500)
+                startSession()
+            }
+        }
     }
     
     /**
@@ -129,7 +189,14 @@ class VisionIntegration(
     private fun setupAudioManager() {
         audioStreamManager = AudioStreamManager { audioData ->
             // Context7: Send captured audio to Realtime API using proper method
-            if (_state.value == IntegrationState.LISTENING) {
+            Log.v(TAG, "🔄 Context7: AudioData received, state=${_state.value}")
+            
+            // Context7: Allow audio streaming in both LISTENING and PROCESSING states
+            if (_state.value == IntegrationState.LISTENING || _state.value == IntegrationState.PROCESSING) {
+                Log.d(TAG, "✅ Context7: Sending audioData to WebSocket - ${audioData.size} bytes")
+                realtimeClient.sendAudioData(audioData)
+            } else {
+                Log.v(TAG, "🔄 Context7: State ${_state.value} - continuing audio stream for testing")
                 realtimeClient.sendAudioData(audioData)
             }
         }
@@ -178,11 +245,20 @@ class VisionIntegration(
             try {
                 _state.value = IntegrationState.CONNECTING
                 
-                // Initialize audio components
-                if (!audioStreamManager.initializeRecording()) {
-                    throw Exception("Failed to initialize audio recording")
+                // Initialize audio components - Context7: Check if already initialized
+                Log.d(TAG, "🎤 Context7: Checking audio initialization state...")
+                Log.d(TAG, "🎤   - Current recording: ${audioStreamManager.isRecording.value}")
+                
+                if (!audioStreamManager.isRecording.value) {
+                    Log.d(TAG, "🎤 Context7: Initializing audio recording...")
+                    if (!audioStreamManager.initializeRecording()) {
+                        throw Exception("Failed to initialize audio recording")
+                    }
+                } else {
+                    Log.d(TAG, "🎤 Context7: Audio recording already active, skipping initialization")
                 }
                 
+                Log.d(TAG, "🎤 Context7: Initializing audio playback...")
                 if (!audioStreamManager.initializePlayback()) {
                     throw Exception("Failed to initialize audio playback")
                 }
@@ -272,32 +348,32 @@ class VisionIntegration(
      * Start audio capture - DISABLED for emulator testing
      */
     private fun startAudioCapture() {
-        // TEMPORARY: Disable audio recording to prevent emulator crashes
-        Log.d(TAG, "Audio recording disabled for emulator testing")
+        // Context7: Enable OpenAI native speech recognition via PCM16 streaming
+        Log.d(TAG, "🎤 Context7: Starting AudioStreamManager for OpenAI Realtime API")
         
-        // audioStreamManager.startRecording()
+        audioStreamManager.startRecording()
         
-        // Monitor audio level for voice activity
-        // audioJob = coroutineScope.launch {
-        //     audioStreamManager.audioLevel.collect { level ->
-        //         if (level > 0.1f && _state.value == IntegrationState.LISTENING) {
-        //             // Voice activity detected
-        //             Log.v(TAG, "Voice activity: $level")
-        //         }
-        //     }
-        // }
+        // Monitor audio level for voice activity (Context7: Server VAD will handle turn detection)
+        audioJob = coroutineScope.launch {
+            audioStreamManager.audioLevel.collect { level ->
+                if (level > 0.1f && _state.value == IntegrationState.LISTENING) {
+                    // Voice activity detected - Context7: Server VAD will process this
+                    Log.v(TAG, "🎤 Context7: Voice activity detected: $level (Server VAD processing)")
+                }
+            }
+        }
     }
     
     /**
      * Stop audio capture - DISABLED for emulator testing
      */
     private fun stopAudioCapture() {
-        // TEMPORARY: Disable for emulator testing
-        Log.d(TAG, "Audio recording stop disabled for emulator testing")
+        // Context7: Stop OpenAI native speech recognition
+        Log.d(TAG, "🎤 Context7: Stopping AudioStreamManager for OpenAI Realtime API")
         
-        // audioStreamManager.stopRecording()
-        // audioJob?.cancel()
-        // audioJob = null
+        audioStreamManager.stopRecording()
+        audioJob?.cancel()
+        audioJob = null
     }
     
     /**
@@ -527,7 +603,9 @@ class VisionIntegration(
      */
     private fun handleTextResponse(text: String) {
         coroutineScope.launch {
-            Log.d(TAG, "handleTextResponse called with: ${text.take(100)}...")
+            Log.d(TAG, "🔊 handleTextResponse called with: ${text.take(100)}...")
+            Log.d(TAG, "🔊 Full text length: ${text.length} characters")
+            Log.d(TAG, "🔊 VoiceManager available: true")
             
             // 🔥 HYBRID LOGIC: Check if user is asking about images
             if (isImageQuestion(text)) {
@@ -541,26 +619,59 @@ class VisionIntegration(
             // _lastResponse.value = Response(text)
             
             val isKorean = realtimeClient.isKoreanMode()
-            Log.d(TAG, "Korean mode: $isKorean")
+            Log.d(TAG, "🔊 Korean mode: $isKorean")
+            Log.d(TAG, "🔊 Current voiceManager state:")
+            Log.d(TAG, "🔊   - isSpeaking: ${voiceManager.isSpeaking.value}")
+            Log.d(TAG, "🔊   - TTS provider: ${voiceManager.getTtsProvider()}")
+            Log.d(TAG, "🔊   - OpenAI TTS available: ${voiceManager.isOpenAITtsAvailable()}")
             
             // Korean mode: Use OpenAI TTS for Korean responses
             if (isKorean) {
+                Log.d(TAG, "🔊 Setting VoiceManager to Korean mode...")
                 // Set VoiceManager to Korean mode and speak with OpenAI TTS
                 voiceManager.setLanguage(true)
+                
+                Log.d(TAG, "🔊 About to call voiceManager.speak() with OpenAI TTS...")
+                Log.d(TAG, "🔊 Text to speak: '${text.take(200)}...'")
+                
+                // Context7: Mute microphone during TTS to prevent feedback
+                audioStreamManager.setMuted(true)
+                
                 voiceManager.speak(text)  // This will use OpenAI TTS
                 
-                Log.d(TAG, "Korean mode: Sent to VoiceManager for OpenAI TTS")
+                Log.d(TAG, "✅ voiceManager.speak() called successfully!")
+                Log.d(TAG, "🔊 Korean mode: Sent to VoiceManager for OpenAI TTS")
                 
                 _state.value = IntegrationState.RESPONDING
+                Log.d(TAG, "🔊 State changed to RESPONDING, waiting for TTS to complete...")
+                
                 // Wait for TTS to complete
-                while (voiceManager.isSpeaking.value) {
+                var waitCount = 0
+                while (voiceManager.isSpeaking.value && waitCount < 100) {  // Max 10 seconds wait
                     delay(100)
+                    waitCount++
+                    if (waitCount % 10 == 0) {  // Log every second
+                        Log.d(TAG, "🔊 Still waiting for TTS... (${waitCount/10}s)")
+                    }
                 }
+                
+                if (waitCount >= 100) {
+                    Log.w(TAG, "⚠️ TTS wait timeout after 10 seconds")
+                } else {
+                    Log.d(TAG, "✅ TTS completed after ${waitCount * 100}ms")
+                }
+                
+                // Context7: Unmute microphone after TTS completes
+                audioStreamManager.setMuted(false)
+                
                 _state.value = IntegrationState.LISTENING
                 _isProcessing.value = false
             } else if (forceAndroidTts) {
                 // English mode but forced to use Android TTS
                 _state.value = IntegrationState.RESPONDING
+                
+                // Context7: Mute microphone during TTS
+                audioStreamManager.setMuted(true)
                 
                 voiceManager.setLanguage(false)  // English
                 voiceManager.speak(text)
@@ -571,6 +682,9 @@ class VisionIntegration(
                 while (voiceManager.isSpeaking.value) {
                     delay(100)
                 }
+                
+                // Context7: Unmute microphone after TTS completes
+                audioStreamManager.setMuted(false)
                 
                 _state.value = IntegrationState.LISTENING
                 _isProcessing.value = false
@@ -587,6 +701,10 @@ class VisionIntegration(
                 if (_state.value != IntegrationState.RESPONDING && !audioStreamManager.isPlaying.value) {
                     Log.w(TAG, "No audio playing, using Android TTS as fallback")
                     _state.value = IntegrationState.RESPONDING
+                    
+                    // Context7: Mute microphone during fallback TTS
+                    audioStreamManager.setMuted(true)
+                    
                     voiceManager.setLanguage(false)  // English
                     voiceManager.speak(text)
                     
@@ -594,6 +712,9 @@ class VisionIntegration(
                     while (voiceManager.isSpeaking.value) {
                         delay(100)
                     }
+                    
+                    // Context7: Unmute microphone after TTS completes
+                    audioStreamManager.setMuted(false)
                     
                     _state.value = IntegrationState.LISTENING
                     _isProcessing.value = false
@@ -607,25 +728,34 @@ class VisionIntegration(
      */
     private fun handleVisionResponse(text: String) {
         coroutineScope.launch {
-            Log.d(TAG, "Vision analysis result: ${text.take(200)}...")
+            Log.d(TAG, "🎯 VisionIntegration: handleVisionResponse called!")
+            Log.d(TAG, "🎯 VisionIntegration: Vision text received: ${text.take(200)}...")
+            Log.d(TAG, "🎯 VisionIntegration: Processing state: ${_isProcessing.value}")
+            Log.d(TAG, "🎯 VisionIntegration: Integration state: ${_state.value}")
             
-            // 🔥 CLEAN APPROACH: Let handleTextResponse handle TTS to avoid conflicts
-            // Set flag to prevent duplicate TTS calls
-            _isProcessing.value = true
+            // 🔥 Context7: Use VoiceManager directly for TTS (NO Realtime API context)
+            Log.d(TAG, "🎯 VisionIntegration: Playing vision result via TTS only...")
             
-            // Send vision result as text response (single path for TTS)
-            handleTextResponse(text)
+            // Context7: Mute microphone during TTS to prevent feedback loop
+            audioStreamManager.setMuted(true)
             
-            // Also send to Realtime API as context for follow-up questions
-            val contextMessage = if (realtimeClient.isKoreanMode()) {
-                "이미지 분석 결과: $text\n\n추가 질문이 있으면 자연스럽게 답변해 주세요."
-            } else {
-                "Image analysis result: $text\n\nPlease answer naturally if there are follow-up questions."
+            voiceManager?.speak(text)
+            
+            _isProcessing.value = false
+            _state.value = IntegrationState.RESPONDING
+            
+            // Context7: NO LONGER sending to Realtime API to prevent TTS duplication
+            Log.d(TAG, "🎯 VisionIntegration: Vision analysis complete - TTS only, no Realtime API context")
+            
+            // Wait for TTS to complete, then return to LISTENING
+            delay(1000) // Brief delay for TTS to start
+            while (voiceManager?.isSpeaking?.value == true) {
+                delay(100)
             }
             
-            delay(2000) // Wait for TTS to start
-            realtimeClient.sendTextMessage(contextMessage)
-            Log.d(TAG, "Vision analysis sent to Realtime API for follow-up context")
+            // Context7: Unmute microphone after TTS completes
+            audioStreamManager.setMuted(false)
+            _state.value = IntegrationState.LISTENING
         }
     }
     

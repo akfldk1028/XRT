@@ -256,38 +256,65 @@ fun MainContent(modifier: Modifier = Modifier) {
     val ttsConfiguration = remember { TtsConfiguration(context) }
     
     // OpenAI Realtime API 통합
-    val visionIntegration = remember {
-        VisionIntegration(
-            context = context,
-            apiKey = openaiApiKey,
-            camera2Manager = cameraManager,
-            voiceManager = voiceManager
-        )
+    var visionIntegration by remember { mutableStateOf<VisionIntegration?>(null) }
+    
+    // VisionIntegration 생성 - LaunchedEffect에서 즉시 실행
+    LaunchedEffect(Unit) {
+        Log.d("MainActivity", "🚀 INITIALIZING: Starting VisionIntegration creation...")
+        delay(500)  // Give managers time to initialize
+        
+        try {
+            Log.d("MainActivity", "🔧 Creating VisionIntegration in LaunchedEffect...")
+            Log.d("MainActivity", "🔧 API Key length: ${openaiApiKey.length}")
+            Log.d("MainActivity", "🔧 API Key starts with: ${openaiApiKey.take(10)}")
+            Log.d("MainActivity", "🔧 CameraManager ready: ${cameraManager != null}")
+            Log.d("MainActivity", "🔧 VoiceManager ready: ${voiceManager != null}")
+            
+            if (openaiApiKey.isBlank() || openaiApiKey.length < 20) {
+                Log.e("MainActivity", "❌ CRITICAL: Invalid API key - length: ${openaiApiKey.length}")
+                return@LaunchedEffect
+            }
+            
+            val integration = VisionIntegration(
+                context = context,
+                apiKey = openaiApiKey,
+                camera2Manager = cameraManager,
+                voiceManager = voiceManager
+            )
+            visionIntegration = integration
+            Log.d("MainActivity", "✅ VisionIntegration created successfully!")
+            Log.d("MainActivity", "✅ READY: VisionIntegration instance set and ready for WebSocket connection")
+        } catch (e: Exception) {
+            Log.e("MainActivity", "❌ CRITICAL: VisionIntegration creation failed!", e)
+            Log.e("MainActivity", "❌ Stack trace: ${e.stackTraceToString()}")
+        }
     }
     
     // Apply saved voice settings to VisionIntegration
     LaunchedEffect(visionIntegration) {
-        val savedVoice = voiceSettingsManager.getSavedVoice()
-        val useKorean = voiceSettingsManager.isKoreanMode()
-        visionIntegration.setVoice(savedVoice)
-        visionIntegration.setLanguageMode(useKorean)
-        
-        // Apply TTS configuration
-        val useAndroidForKorean = ttsConfiguration.useAndroidForKorean.value
-        val forceAndroid = ttsConfiguration.forceAndroidTts.value
-        visionIntegration.configureTts(useAndroidForKorean, forceAndroid)
-        
-        // Set VoiceManager language and speech rate
-        voiceManager.setLanguage(useKorean)
-        voiceManager.setSpeechRate(ttsConfiguration.speechRate.value)
+        visionIntegration?.let { integration ->
+            val savedVoice = voiceSettingsManager.getSavedVoice()
+            val useKorean = voiceSettingsManager.isKoreanMode()
+            integration.setVoice(savedVoice)
+            integration.setLanguageMode(useKorean)
+            
+            // Apply TTS configuration
+            val useAndroidForKorean = ttsConfiguration.useAndroidForKorean.value
+            val forceAndroid = ttsConfiguration.forceAndroidTts.value
+            integration.configureTts(useAndroidForKorean, forceAndroid)
+            
+            // Set VoiceManager language and speech rate
+            voiceManager.setLanguage(useKorean)
+            voiceManager.setSpeechRate(ttsConfiguration.speechRate.value)
+        }
     }
     
     // 시스템 상태
     var isSystemReady by remember { mutableStateOf(false) }
     var currentResponse by remember { mutableStateOf<String?>(null) }
-    val integrationState by visionIntegration.state.collectAsState()
-    val lastResponse by visionIntegration.lastResponse.collectAsState()
-    val isProcessing by visionIntegration.isProcessing.collectAsState()
+    val integrationState by (visionIntegration?.state?.collectAsState() ?: remember { mutableStateOf(VisionIntegration.IntegrationState.ERROR) })
+    val lastResponse by (visionIntegration?.lastResponse?.collectAsState() ?: remember { mutableStateOf<String?>(null) })
+    val isProcessing by (visionIntegration?.isProcessing?.collectAsState() ?: remember { mutableStateOf(false) })
     
     // 카메라 디버그 정보
     var cameraDebugInfo by remember { mutableStateOf("") }
@@ -342,7 +369,7 @@ fun MainContent(modifier: Modifier = Modifier) {
                 // Log.d("MainActivity", "Camera Status: $cameraStatus") // Reduced logging
             
                 // OpenAI Realtime API 초기화
-                visionIntegration.initialize()
+                visionIntegration?.initialize()
                 isSystemReady = true
             }
         }
@@ -361,14 +388,14 @@ fun MainContent(modifier: Modifier = Modifier) {
     // OpenAI Realtime API 세션 시작/종료
     LaunchedEffect(integrationState) {
         if (integrationState == VisionIntegration.IntegrationState.READY && isSystemReady) {
-            visionIntegration.startSession()
+            visionIntegration?.startSession()
         }
     }
     
     // 리소스 정리
     DisposableEffect(Unit) {
         onDispose {
-            visionIntegration.release()
+            visionIntegration?.release()
         }
     }
     
@@ -466,7 +493,7 @@ fun MainContent(modifier: Modifier = Modifier) {
                             .padding(horizontal = 20.dp, vertical = 12.dp)
                     ) {
                         Text(
-                            text = lastResponse?.text ?: "",
+                            text = (lastResponse as? String) ?: "",
                             color = Color.White,
                             style = androidx.compose.material3.MaterialTheme.typography.bodyLarge,
                             fontSize = 16.sp,
@@ -558,13 +585,13 @@ fun MainContent(modifier: Modifier = Modifier) {
                             coroutineScope.launch {
                                 if (integrationState != VisionIntegration.IntegrationState.READY && 
                                     integrationState != VisionIntegration.IntegrationState.LISTENING) {
-                                    visionIntegration.startSession()
+                                    visionIntegration?.startSession()
                                     delay(1000)
                                 }
                                 
                                 val jpegData = cameraManager.captureCurrentFrameAsJpeg()
                                 if (jpegData != null) {
-                                    visionIntegration.sendQuery("What do you see in this image?")
+                                    visionIntegration?.sendQuery("What do you see in this image?")
                                 } else {
                                     Log.e("MainActivity", "❌ Failed to capture image")
                                 }
@@ -650,7 +677,7 @@ fun MainContent(modifier: Modifier = Modifier) {
                         TextInputField(
                             enabled = isSystemReady,
                             onSendQuery = { query ->
-                                visionIntegration.sendQuery(query)
+                                visionIntegration?.sendQuery(query)
                             },
                             modifier = Modifier.fillMaxWidth()
                         )
@@ -698,11 +725,12 @@ fun MainContent(modifier: Modifier = Modifier) {
         }
         
         // Voice Settings Dialog
-        if (showVoiceSettings) {
+        val currentVisionIntegration = visionIntegration
+        if (showVoiceSettings && currentVisionIntegration != null) {
             VoiceSettingsDialog(
                 onDismiss = { showVoiceSettings = false },
                 voiceSettingsManager = voiceSettingsManager,
-                visionIntegration = visionIntegration
+                visionIntegration = currentVisionIntegration
             )
         }
     }
@@ -715,7 +743,7 @@ fun MainContent(modifier: Modifier = Modifier) {
             hasMicrophone && !useTextInput) {
             
             // OpenAI Realtime API로 질문 전송 (음성 + 비전)
-            visionIntegration.sendQuery(recognizedText)
+            visionIntegration?.sendQuery(recognizedText)
             voiceManager.clearRecognizedText()
         }
     }
@@ -736,7 +764,7 @@ fun MainContent(modifier: Modifier = Modifier) {
     // 응답 업데이트 처리
     LaunchedEffect(lastResponse) {
         lastResponse?.let { response ->
-            currentResponse = response.text
+            currentResponse = response as? String
         }
     }
 }

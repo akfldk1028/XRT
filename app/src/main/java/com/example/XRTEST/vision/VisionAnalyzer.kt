@@ -131,6 +131,7 @@ class VisionAnalyzer(
                         val content = message.getString("content")
                         
                         Log.d(TAG, "Analysis successful: ${content.take(200)}...")
+                        Log.d(TAG, "🎯 VisionAnalyzer: About to call onAnalysisResult callback...")
                         
                         // Cache the result
                         analysisCache[imageHash] = AnalysisResult(
@@ -144,6 +145,7 @@ class VisionAnalyzer(
                         
                         // Return the result
                         onAnalysisResult(content)
+                        Log.d(TAG, "🎯 VisionAnalyzer: onAnalysisResult callback completed!")
                     } else {
                         Log.e(TAG, "No choices in API response")
                         onError("No analysis result received")
