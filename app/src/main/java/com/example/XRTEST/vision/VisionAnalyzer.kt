@@ -26,10 +26,10 @@ class VisionAnalyzer(
     companion object {
         private const val TAG = "VisionAnalyzer"
         private const val CHAT_API_URL = "https://api.openai.com/v1/chat/completions"
-        private const val VISION_MODEL = "gpt-4o" // GPT-4 with vision capabilities
-        private const val MAX_IMAGE_SIZE = 384  // Context7: Ultra-fast for real-time
-        private const val JPEG_QUALITY = 60     // Context7: Even lower quality for speed
-        private const val REQUEST_TIMEOUT_SECONDS = 15L // Shorter timeout for real-time
+        private const val VISION_MODEL = "gpt-4.1-mini" // 🚀 GPT-4.1-mini: 50% faster latency!
+        private const val MAX_IMAGE_SIZE = 384  // 🎯 Balance: speed + accuracy
+        private const val JPEG_QUALITY = 70     // 🎯 Balance: speed + quality
+        private const val REQUEST_TIMEOUT_SECONDS = 8L  // 🎯 GPT-4.1-mini optimized
         
         // Analysis modes
         const val MODE_GENERAL = "general"
@@ -37,6 +37,10 @@ class VisionAnalyzer(
         const val MODE_TEXT_READING = "text"
         const val MODE_COLOR_ANALYSIS = "color"
         const val MODE_SCENE_UNDERSTANDING = "scene"
+        
+        // 🚀 Ultra-fast optimization settings
+        const val ULTRA_FAST_MAX_TOKENS = 80   // 🎯 Balance: speed + detail
+        const val ULTRA_FAST_QUALITY = 80     // 🚀 Good balance speed/quality
     }
     
     private val client = OkHttpClient.Builder()
@@ -71,6 +75,92 @@ class VisionAnalyzer(
      * @param mode Analysis mode (general, object, text, color, scene)
      * @param useKorean Whether to respond in Korean
      */
+    /**
+     * 🚀 ULTRA-FAST: Analyze image from Base64 string directly (skips Bitmap conversion)
+     */
+    fun analyzeImageBase64(
+        base64Image: String,
+        prompt: String? = null,
+        mode: String = MODE_GENERAL,
+        useKorean: Boolean = true
+    ) {
+        coroutineScope.launch {
+            try {
+                _isAnalyzing.value = true
+                Log.d(TAG, "🚀 ULTRA-FAST Base64 analysis - Mode: $mode, Korean: $useKorean")
+                
+                val imageHash = base64Image.hashCode().toString()
+                
+                // Check cache
+                analysisCache[imageHash]?.let { cached ->
+                    if (System.currentTimeMillis() - cached.timestamp < cacheExpirationMs &&
+                        cached.mode == mode) {
+                        Log.d(TAG, "Using cached analysis result")
+                        onAnalysisResult(cached.result)
+                        _isAnalyzing.value = false
+                        return@launch
+                    }
+                }
+                
+                // Create ultra-fast optimized prompts
+                val systemPrompt = createUltraFastSystemPrompt(mode, useKorean)
+                val userPrompt = prompt ?: createUltraFastPrompt(mode, useKorean)
+                
+                // Build ultra-fast API request
+                val requestBody = buildUltraFastVisionRequest(base64Image, systemPrompt, userPrompt)
+                
+                // Make the API call
+                val request = Request.Builder()
+                    .url(CHAT_API_URL)
+                    .addHeader("Authorization", "Bearer $apiKey")
+                    .addHeader("Content-Type", "application/json")
+                    .post(requestBody.toRequestBody("application/json".toMediaType()))
+                    .build()
+                
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        val errorBody = response.body?.string() ?: "Unknown error"
+                        Log.e(TAG, "API request failed: ${response.code} - $errorBody")
+                        onError("Vision analysis failed: ${response.code}")
+                        return@use
+                    }
+                    
+                    // Parse the response
+                    val responseBody = response.body?.string() ?: ""
+                    val jsonResponse = JSONObject(responseBody)
+                    
+                    // Extract the analysis result
+                    val choices = jsonResponse.getJSONArray("choices")
+                    if (choices.length() > 0) {
+                        val message = choices.getJSONObject(0).getJSONObject("message")
+                        val content = message.getString("content")
+                        
+                        Log.d(TAG, "🚀 Ultra-fast analysis successful: ${content.take(100)}...")
+                        
+                        // Cache the result
+                        analysisCache[imageHash] = AnalysisResult(
+                            result = content,
+                            timestamp = System.currentTimeMillis(),
+                            mode = mode
+                        )
+                        
+                        _lastAnalysisTime.value = System.currentTimeMillis()
+                        onAnalysisResult(content)
+                    } else {
+                        Log.e(TAG, "No choices in API response")
+                        onError("No analysis result received")
+                    }
+                }
+                
+            } catch (e: Exception) {
+                Log.e(TAG, "Ultra-fast analysis error: ${e.message}", e)
+                onError("Analysis failed: ${e.message}")
+            } finally {
+                _isAnalyzing.value = false
+            }
+        }
+    }
+    
     fun analyzeImage(
         bitmap: Bitmap,
         prompt: String? = null,
@@ -101,8 +191,8 @@ class VisionAnalyzer(
                 val systemPrompt = createSystemPrompt(mode, useKorean)
                 val userPrompt = prompt ?: createDefaultPrompt(mode, useKorean)
                 
-                // Build the API request
-                val requestBody = buildVisionRequest(base64Image, systemPrompt, userPrompt)
+                // Build the API request with ultra-fast optimizations
+                val requestBody = buildUltraFastVisionRequest(base64Image, systemPrompt, userPrompt)
                 
                 // Make the API call
                 val request = Request.Builder()
@@ -382,6 +472,84 @@ class VisionAnalyzer(
     /**
      * Clean up resources
      */
+    /**
+     * 🚀 ULTRA-FAST: Build optimized API request for maximum speed
+     */
+    private fun buildUltraFastVisionRequest(
+        base64Image: String,
+        systemPrompt: String,
+        userPrompt: String
+    ): String {
+        val request = JSONObject().apply {
+            put("model", VISION_MODEL)
+            put("messages", JSONArray().apply {
+                // User message with image only (skip system message to save tokens)
+                put(JSONObject().apply {
+                    put("role", "user")
+                    put("content", JSONArray().apply {
+                        // Text part - ultra-concise
+                        put(JSONObject().apply {
+                            put("type", "text")
+                            put("text", "$userPrompt (간결하게)") // Concise but not extreme
+                        })
+                        
+                        // Image part
+                        put(JSONObject().apply {
+                            put("type", "image_url")
+                            put("image_url", JSONObject().apply {
+                                put("url", "data:image/jpeg;base64,$base64Image")
+                                put("detail", "low") // Fastest processing
+                            })
+                        })
+                    })
+                })
+            })
+            
+            // 🚀 EXTREME optimization for sub-second response
+            put("max_tokens", ULTRA_FAST_MAX_TOKENS)  // 100 tokens for good quality
+            put("temperature", 0.0)     // No randomness
+            put("top_p", 0.1)          // Ultra-focused
+            put("presence_penalty", 0.0)
+            put("frequency_penalty", 0.0)
+        }
+        
+        return request.toString()
+    }
+    
+    /**
+     * 🚀 Create ultra-fast system prompts (minimal tokens)
+     */
+    private fun createUltraFastSystemPrompt(mode: String, useKorean: Boolean): String {
+        return if (useKorean) {
+            "한 줄로 답하세요."
+        } else {
+            "Answer in one line."
+        }
+    }
+    
+    /**
+     * 🚀 Create ultra-fast prompts (minimal tokens)
+     */
+    private fun createUltraFastPrompt(mode: String, useKorean: Boolean): String {
+        return when (mode) {
+            MODE_OBJECT_DETECTION -> {
+                if (useKorean) "무엇?" else "What?"
+            }
+            MODE_COLOR_ANALYSIS -> {
+                if (useKorean) "색깔?" else "Color?"
+            }
+            MODE_TEXT_READING -> {
+                if (useKorean) "글자?" else "Text?"
+            }
+            MODE_SCENE_UNDERSTANDING -> {
+                if (useKorean) "어디?" else "Where?"
+            }
+            else -> {
+                if (useKorean) "보이는 것?" else "What's visible?"
+            }
+        }
+    }
+    
     fun destroy() {
         coroutineScope.cancel()
         client.dispatcher.executorService.shutdown()
