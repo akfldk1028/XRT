@@ -28,10 +28,10 @@ class VisionIntegration(
     
     companion object {
         private const val TAG = "VisionIntegration"
-        private const val IMAGE_QUALITY = 85 // JPEG compression quality
-        private const val MAX_IMAGE_SIZE = 1024 // Max dimension for API
-        private const val CAPTURE_INTERVAL_MS = 1000L // Capture frame every second
-        private const val AUDIO_CHUNK_DURATION_MS = 100L // Audio chunk duration
+        private const val IMAGE_QUALITY = 40  // Context7: Ultra-low quality for speed
+        private const val MAX_IMAGE_SIZE = 384 // Context7: Smaller for real-time
+        private const val CAPTURE_INTERVAL_MS = 500L   // Faster capture for real-time
+        private const val AUDIO_CHUNK_DURATION_MS = 50L  // Smaller chunks for lower latency
     }
     
     private val coroutineScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
@@ -920,7 +920,11 @@ class VisionIntegration(
     fun setVoice(voice: String) {
         if (voice in RealtimeVisionClient.AVAILABLE_VOICES) {
             realtimeClient.setVoice(voice)
-            Log.d(TAG, "Voice changed to: $voice")
+            
+            // CRITICAL: Also update VoiceManager for OpenAI TTS
+            voiceManager.setOpenAITtsVoice(voice)
+            
+            Log.d(TAG, "Voice changed to: $voice (both RealtimeClient and VoiceManager)")
         } else {
             Log.w(TAG, "Invalid voice: $voice")
         }

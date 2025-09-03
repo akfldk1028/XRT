@@ -31,9 +31,9 @@ class AudioStreamManager(
         private const val CHANNEL_CONFIG_PLAY = AudioFormat.CHANNEL_OUT_MONO
         private const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
         
-        // Buffer sizes
-        private const val RECORD_BUFFER_SIZE_MS = 100 // 100ms chunks
-        private const val PLAYBACK_BUFFER_SIZE_MS = 50 // 50ms chunks
+        // Buffer sizes - Optimized for real-time
+        private const val RECORD_BUFFER_SIZE_MS = 50  // 50ms chunks for lower latency
+        private const val PLAYBACK_BUFFER_SIZE_MS = 25 // 25ms chunks for faster playback
         
         // Audio processing
         private const val SILENCE_THRESHOLD = 500 // Amplitude threshold for silence detection
@@ -238,15 +238,16 @@ class AudioStreamManager(
                             Log.d(TAG, "🎤 Audio loop active: iteration $loopCount, last read: $bytesRead bytes")
                         }
                         
-                        // Context7: Critical - Check if AudioRecord stopped reading
+                        // Context7: Handle emulator AudioRecord gracefully
                         if (bytesRead == 0) {
-                            Log.w(TAG, "⚠️ Context7: AudioRecord returned 0 bytes - checking state...")
-                            Log.w(TAG, "⚠️ AudioRecord state: ${audioRecord?.state}")
-                            Log.w(TAG, "⚠️ Recording state: ${audioRecord?.recordingState}")
+                            // Only log occasionally to avoid spam in emulator
+                            if (loopCount % 1000 == 0) {
+                                Log.d(TAG, "🎤 Context7: AudioRecord no data (normal in emulator) - loop: $loopCount")
+                            }
                             
-                            // If we get multiple consecutive 0 reads, something is wrong
-                            if (loopCount > 100 && bytesRead == 0) {
-                                Log.e(TAG, "❌ Context7: AudioRecord may have failed - consider reinitializing")
+                            // Only warn after much longer period for real issues  
+                            if (loopCount > 5000 && bytesRead == 0) {
+                                Log.w(TAG, "⚠️ Context7: AudioRecord consistently no data - may be emulator limitation")
                             }
                         }
                         

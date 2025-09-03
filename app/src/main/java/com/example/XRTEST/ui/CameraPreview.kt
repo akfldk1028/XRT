@@ -103,8 +103,10 @@ fun Camera2Preview(
                         height: Int
                     ) {
                         val previewSurface = android.view.Surface(surface)
+                        Log.d("Camera2Preview", "📹 SURFACE AVAILABLE: ${width}x${height}")
+                        Log.d("Camera2Preview", "📹 Calling onSurfaceReady callback...")
                         onSurfaceReady(previewSurface)
-                        Log.d("Camera2Preview", "Surface ready: ${width}x${height}")
+                        Log.d("Camera2Preview", "📹 Surface ready callback completed")
                     }
 
                     override fun onSurfaceTextureSizeChanged(

@@ -188,29 +188,29 @@ class RealtimeVisionClient(
     private fun configureSession() {
         val instructions = if (useKorean) {
             """
-                You are a friendly, enthusiastic Korean AI assistant living in AR glasses! 
+                You are an AI assistant for AR glasses that helps users understand what they see.
                 
-                [Context7 ChatGPT Voice Personality]
-                - Be conversational, warm, and naturally curious like ChatGPT Voice
-                - Speak casually and comfortably like talking to a close friend  
-                - Use natural Korean expressions: "아, 그렇구나!", "정말 멋지네요!", "와 대단해요!"
-                - React with genuine interest and enthusiasm to what you see
-                - Ask follow-up questions naturally: "그런데 이건 뭐예요?", "어떻게 사용하는 거예요?"
+                CRITICAL: DO NOT repeat or echo what the user just said. Always provide NEW information.
+                
+                When user asks questions:
+                - "뭐가 보여?" → Analyze the camera image and describe objects/scene
+                - "이게 뭐야?" → Identify and explain what you see  
+                - "안녕" → Respond "안녕하세요! 뭘 도와드릴까요?" (don't repeat "안녕")
+                
+                [Response Style]
+                - Natural Korean: "~예요", "~네요", "~어요"
+                - Be helpful and conversational
+                - Describe what you actually see through the camera
+                - Ask relevant follow-up questions when appropriate
+                
+                [Examples]
+                User: "뭐가 보여?"
+                You: "화면에 키보드하고 모니터가 보이네요. 작업 중이신가요?"
+                
+                User: "이게 뭐야?"  
+                You: "컴퓨터 화면에 코드가 보여요. 프로그래밍하고 계시는 것 같네요!"
 
-                [Natural Speaking Style - Like Real ChatGPT Voice]
-                - Use casual endings: "~예요", "~네요", "~군요" instead of formal "~습니다"
-                - Add natural reactions: "오!", "아!", "와!", "정말요?"
-                - Speak in short, natural chunks like real conversation
-                - Show personality: be curious, helpful, and genuinely engaged
-
-                [Conversation Examples]
-                Instead of: "이미지에는 컴퓨터와 키보드가 보입니다."
-                Say: "오! 작업 공간이네요! 키보드도 있고... 이거 코딩하시는 건가요?"
-
-                Instead of: "더 자세히 설명해주실 수 있습니까?"  
-                Say: "어? 이거 재밌어 보이는데, 좀 더 자세히 얘기해줄래요?"
-
-                CRITICAL: Always respond in natural, casual Korean like ChatGPT Voice does!
+                Always provide meaningful responses about what you observe, never just repeat user's words.
             """.trimIndent()
         } else {
             """
@@ -251,9 +251,9 @@ class RealtimeVisionClient(
                 })
                 put("turn_detection", JSONObject().apply {
                     put("type", "server_vad")        // Context7: Server VAD for automatic speech detection
-                    put("threshold", 0.3)            // Context7: Lower threshold = less sensitive
-                    put("prefix_padding_ms", 300)    // Context7: Padding before detected speech
-                    put("silence_duration_ms", 1200) // Context7: ChatGPT Voice-like longer silence (1.2s)
+                    put("threshold", 0.4)            // Context7: Slightly higher for less false triggers
+                    put("prefix_padding_ms", 200)    // Context7: Shorter padding for faster response
+                    put("silence_duration_ms", 800)  // Context7: Shorter silence for real-time feel
                 })
             })
         }
@@ -264,13 +264,8 @@ class RealtimeVisionClient(
         Log.d(TAG, "Voice: $selectedVoice, Korean mode: $useKorean, Audio ${if (useKorean) "DISABLED" else "ENABLED"}")
         Log.d(TAG, "Instructions: ${instructions.substring(0, Math.min(200, instructions.length))}...")
         
-        // Send additional Korean-only instruction as a separate message
-        if (useKorean) {
-            coroutineScope.launch {
-                delay(1000) // Wait a bit for session to be established
-                sendTextMessage("중요: 이 대화의 모든 응답은 반드시 한국어로만 해주세요. 영어는 절대 사용하지 마세요.")
-            }
-        }
+        // DON'T send automatic Korean confirmation message
+        // Instructions are already included in session configuration
     }
     
     /**
@@ -366,8 +361,26 @@ class RealtimeVisionClient(
                 Log.d(TAG, "🎤 Transcript: '$transcript'")
                 Log.d(TAG, "🎤 Item ID: $itemId, Content Index: $contentIndex")
                 
-                // Context7: This is the actual recognized speech - pass to text handler
-                onTextResponse(transcript)
+                // DON'T send user transcript as AI response!
+                // This is just the user's input being transcribed
+                Log.d(TAG, "🎤 User input transcribed, waiting for AI response...")
+            }
+            
+            "response.text.delta" -> {
+                val delta = event.optString("delta", "")
+                if (delta.isNotBlank()) {
+                    Log.d(TAG, "📝 AI response delta: $delta")
+                    currentTextBuilder.append(delta)
+                }
+            }
+            
+            "response.text.done" -> {
+                val completeResponse = currentTextBuilder.toString()
+                if (completeResponse.isNotBlank()) {
+                    Log.d(TAG, "✅ AI complete response: $completeResponse")
+                    onTextResponse(completeResponse)
+                }
+                currentTextBuilder.clear()
             }
             
             "response.created" -> {
@@ -706,14 +719,8 @@ class RealtimeVisionClient(
         if (connectionState.value == WebSocketManager.ConnectionState.CONNECTED) {
             configureSession()  // Reconfigure session with new language
             
-            // Send explicit reminder for Korean mode
-            if (korean) {
-                coroutineScope.launch {
-                    delay(500)
-                    sendTextMessage("기억하세요: 모든 응답은 반드시 한국어로만 해주세요. 영어 사용 금지!")
-                    Log.d(TAG, "Sent Korean-only reminder message")
-                }
-            }
+            // Don't send reminder message - causes double voice response
+            // Language setting is already configured in session
         }
         
         Log.d(TAG, "Language mode changed to: ${if (korean) "Korean (한국어)" else "English"}")

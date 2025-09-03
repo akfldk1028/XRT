@@ -227,12 +227,17 @@ class Camera2Manager(private val context: Context) {
      * Set preview surface for displaying camera feed
      */
     fun setPreviewSurface(surface: Surface) {
-        // Log.d(TAG, "Setting preview surface") // Reduced logging
+        Log.d(TAG, "📱 PREVIEW SURFACE SET!")
+        Log.d(TAG, "📱 Surface valid: ${surface.isValid}")
+        Log.d(TAG, "📱 Camera device: ${if (cameraDevice != null) "AVAILABLE" else "NULL"}")
         previewSurface = surface
         
         // 이미 카메라가 열려있으면 세션 재생성
         if (cameraDevice != null) {
+            Log.d(TAG, "📱 Camera device exists - creating capture session...")
             createCaptureSession()
+        } else {
+            Log.d(TAG, "📱 Camera device not ready yet - surface will be used when camera opens")
         }
     }
     
@@ -500,12 +505,12 @@ class Camera2Manager(private val context: Context) {
     }
     
     private fun chooseOptimalSize(choices: Array<Size>): Size {
-        // For emulator, prefer smaller sizes for performance
+        // Context7: Ultra-fast sizes for real-time processing
         val preferredSizes = listOf(
-            Size(640, 480),   // VGA
-            Size(1280, 720),  // HD
-            Size(800, 600),   // SVGA
-            Size(1920, 1080)  // Full HD
+            Size(320, 240),   // QVGA - Ultra-fast
+            Size(480, 320),   // Small - Fast  
+            Size(640, 480),   // VGA - Balanced
+            Size(800, 600)    // SVGA - Last resort
         )
         
         for (preferred in preferredSizes) {
@@ -527,12 +532,17 @@ class Camera2Manager(private val context: Context) {
     private fun processImage(image: Image?) {
         image?.let {
             try {
+                // DEBUG: Log frame processing
+                Log.d(TAG, "🎥 Processing camera frame: ${it.width}x${it.height}, format=${it.format}")
+                
                 // Process the image frame - capture ALL YUV planes for proper conversion
                 // YUV_420_888 has 3 planes: Y, U, V
                 val planes = it.planes
                 val ySize = planes[0].buffer.remaining()
                 val uSize = planes[1].buffer.remaining()
                 val vSize = planes[2].buffer.remaining()
+                
+                Log.d(TAG, "📊 YUV data sizes: Y=$ySize, U=$uSize, V=$vSize")
                 
                 // Create byte array for complete YUV data
                 val nv21 = ByteArray(ySize + uSize + vSize)
@@ -560,12 +570,15 @@ class Camera2Manager(private val context: Context) {
                 
                 // Store complete YUV data for capture
                 _frameProcessed.value = nv21
+                Log.d(TAG, "✅ Frame processed and stored: ${nv21.size} bytes")
                 
                 it.close()
             } catch (e: Exception) {
                 Log.e(TAG, "Error processing image: ${e.message}")
                 it.close()
             }
+        } ?: run {
+            Log.w(TAG, "❌ processImage called with null image!")
         }
     }
 
@@ -617,30 +630,57 @@ class Camera2Manager(private val context: Context) {
         try {
             val requestBuilder = cameraDevice?.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW)
             
-            // CRITICAL: Add ImageReader surface for RAW capture (no UI overlays)
-            requestBuilder?.addTarget(imageReader?.surface!!)
+            Log.d(TAG, "🔍 Starting preview - checking surfaces...")
+            Log.d(TAG, "🔍 ImageReader: ${if (imageReader != null) "EXISTS" else "NULL"}")
+            Log.d(TAG, "🔍 ImageReader surface: ${if (imageReader?.surface != null) "EXISTS" else "NULL"}")
+            Log.d(TAG, "🔍 Preview surface: ${if (previewSurface != null) "EXISTS" else "NULL"}")
+            
+            // CRITICAL: Add ImageReader surface for RAW capture (no UI overlays) - WITH NULL CHECK
+            imageReader?.surface?.let { imageReaderSurface ->
+                Log.d(TAG, "✅ Adding ImageReader surface to request")
+                requestBuilder?.addTarget(imageReaderSurface)
+            } ?: run {
+                Log.e(TAG, "❌ ImageReader surface is null! Cannot add to request")
+            }
             
             // Add preview surface for display (this shows to user with crosshair overlay)
-            previewSurface?.let {
-                requestBuilder?.addTarget(it)
+            previewSurface?.let { previewSurf ->
+                Log.d(TAG, "✅ Adding preview surface to request")
+                requestBuilder?.addTarget(previewSurf)
                 // Both surfaces get same camera feed, but:
                 // - ImageReader: RAW data for AI processing (NO crosshair)
                 // - TextureView: Display with UI overlays (WITH crosshair)
+            } ?: run {
+                Log.w(TAG, "⚠️ Preview surface is null - no UI display")
+            }
+            
+            // Ensure we have at least one surface before proceeding
+            val hasImageReader = imageReader?.surface != null
+            val hasPreview = previewSurface != null
+            
+            if (!hasImageReader && !hasPreview) {
+                Log.e(TAG, "❌ No surfaces available for preview! Cannot start.")
+                return
             }
             
             // Set auto-focus and auto-exposure
             requestBuilder?.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
             requestBuilder?.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON_AUTO_FLASH)
             
-            captureSession?.setRepeatingRequest(
-                requestBuilder?.build()!!,
-                null,
-                backgroundHandler
-            )
+            val request = requestBuilder?.build()
+            if (request != null) {
+                captureSession?.setRepeatingRequest(
+                    request,
+                    null,
+                    backgroundHandler
+                )
+                Log.d(TAG, "✅ Preview started: ImageReader=${hasImageReader}, Preview=${hasPreview}")
+            } else {
+                Log.e(TAG, "❌ Failed to build capture request")
+            }
             
-            Log.d(TAG, "✅ Preview started: ImageReader captures RAW, TextureView shows UI")
         } catch (e: Exception) {
-            Log.e(TAG, "Error starting preview: ${e.message}", e)
+            Log.e(TAG, "❌ Error starting preview: ${e.message}", e)
         }
     }
 
@@ -785,9 +825,16 @@ TO FIX:
      * The crosshair is ONLY a visual guide and will NOT appear in captured images
      */
     fun captureCurrentFrameAsJpeg(): ByteArray? {
+        Log.d(TAG, "🔍 captureCurrentFrameAsJpeg() called")
+        Log.d(TAG, "📊 Current frame state: ${if (_frameProcessed.value != null) "AVAILABLE (${_frameProcessed.value!!.size} bytes)" else "NULL"}")
+        Log.d(TAG, "📹 Camera state: ready=${_isCameraReady.value}, device=${if (cameraDevice != null) "CONNECTED" else "NULL"}")
+        
         // Get the latest raw frame from ImageReader (no UI overlays)
         val currentFrame = _frameProcessed.value ?: run {
-            Log.w(TAG, "No frame available to capture")
+            Log.e(TAG, "❌ NO FRAME AVAILABLE! Camera may not be capturing frames properly.")
+            Log.e(TAG, "   - Check if camera is started: ${_isCameraReady.value}")
+            Log.e(TAG, "   - Check if ImageReader is receiving frames")
+            Log.e(TAG, "   - Check if processImage() is being called")
             return null
         }
         
@@ -795,10 +842,10 @@ TO FIX:
             // Convert raw YUV camera data to JPEG
             // This is pure camera feed - crosshair is NOT included
             val jpegData = convertYuvToJpeg(currentFrame)
-            Log.d(TAG, "Captured RAW camera frame as JPEG: ${jpegData.size} bytes (no UI overlays)")
+            Log.d(TAG, "✅ Successfully captured RAW camera frame as JPEG: ${jpegData.size} bytes (no UI overlays)")
             jpegData
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to convert frame to JPEG: ${e.message}")
+            Log.e(TAG, "❌ Failed to convert frame to JPEG: ${e.message}", e)
             null
         }
     }
@@ -819,11 +866,11 @@ TO FIX:
             null
         )
         
-        // Compress to JPEG
+        // Compress to JPEG - Context7: Ultra-low quality for speed
         val outputStream = java.io.ByteArrayOutputStream()
         yuvImage.compressToJpeg(
             android.graphics.Rect(0, 0, width, height),
-            85, // JPEG quality (0-100)
+            45, // Context7: Very low quality for speed
             outputStream
         )
         

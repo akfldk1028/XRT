@@ -66,6 +66,7 @@ fun TextInputField(
                 keyboardActions = KeyboardActions(
                     onSend = {
                         if (textInput.isNotBlank()) {
+                            android.util.Log.d("TextInputField", "🎯 KEYBOARD SEND: '$textInput'")
                             onSendQuery(textInput.trim())
                             textInput = ""
                             isTyping = false
@@ -82,6 +83,7 @@ fun TextInputField(
             FilledTonalButton(
                 onClick = {
                     if (textInput.isNotBlank()) {
+                        android.util.Log.d("TextInputField", "🎯 BUTTON SEND: '$textInput'")
                         onSendQuery(textInput.trim())
                         textInput = ""
                         isTyping = false

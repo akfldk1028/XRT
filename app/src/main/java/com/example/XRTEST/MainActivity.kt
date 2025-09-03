@@ -582,18 +582,24 @@ fun MainContent(modifier: Modifier = Modifier) {
                     // 📸 캡처 버튼 - 작은 플로팅 버튼
                     FloatingActionButton(
                         onClick = {
+                            Log.d("MainActivity", "📸 CAPTURE BUTTON CLICKED!")
+                            Log.d("MainActivity", "🔍 Integration state: $integrationState")
                             coroutineScope.launch {
                                 if (integrationState != VisionIntegration.IntegrationState.READY && 
                                     integrationState != VisionIntegration.IntegrationState.LISTENING) {
+                                    Log.d("MainActivity", "🔄 Starting session first...")
                                     visionIntegration?.startSession()
                                     delay(1000)
                                 }
                                 
+                                Log.d("MainActivity", "📷 Attempting to capture frame...")
                                 val jpegData = cameraManager.captureCurrentFrameAsJpeg()
                                 if (jpegData != null) {
+                                    Log.d("MainActivity", "✅ Frame captured: ${jpegData.size} bytes")
+                                    Log.d("MainActivity", "🚀 Sending vision query...")
                                     visionIntegration?.sendQuery("What do you see in this image?")
                                 } else {
-                                    Log.e("MainActivity", "❌ Failed to capture image")
+                                    Log.e("MainActivity", "❌ Failed to capture image - camera not working")
                                 }
                             }
                         },
@@ -677,6 +683,9 @@ fun MainContent(modifier: Modifier = Modifier) {
                         TextInputField(
                             enabled = isSystemReady,
                             onSendQuery = { query ->
+                                Log.d("MainActivity", "📝 TEXT QUERY RECEIVED: '$query'")
+                                Log.d("MainActivity", "🔍 System ready: $isSystemReady")
+                                Log.d("MainActivity", "🔍 VisionIntegration: ${if (visionIntegration != null) "EXISTS" else "NULL"}")
                                 visionIntegration?.sendQuery(query)
                             },
                             modifier = Modifier.fillMaxWidth()

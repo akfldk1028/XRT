@@ -27,9 +27,9 @@ class VisionAnalyzer(
         private const val TAG = "VisionAnalyzer"
         private const val CHAT_API_URL = "https://api.openai.com/v1/chat/completions"
         private const val VISION_MODEL = "gpt-4o" // GPT-4 with vision capabilities
-        private const val MAX_IMAGE_SIZE = 2048 // Max dimension for image
-        private const val JPEG_QUALITY = 85
-        private const val REQUEST_TIMEOUT_SECONDS = 30L
+        private const val MAX_IMAGE_SIZE = 384  // Context7: Ultra-fast for real-time
+        private const val JPEG_QUALITY = 60     // Context7: Even lower quality for speed
+        private const val REQUEST_TIMEOUT_SECONDS = 15L // Shorter timeout for real-time
         
         // Analysis modes
         const val MODE_GENERAL = "general"
@@ -332,16 +332,18 @@ class VisionAnalyzer(
                             put("type", "image_url")
                             put("image_url", JSONObject().apply {
                                 put("url", "data:image/jpeg;base64,$base64Image")
-                                put("detail", "high") // Use high detail for better accuracy
+                                put("detail", "low") // Context7: Use low detail for faster processing
                             })
                         })
                     })
                 })
             })
             
-            // Optional parameters
-            put("max_tokens", 500)
-            put("temperature", 0.7)
+            // Context7: Ultra-speed parameters for real-time AR interaction
+            put("max_tokens", 150)      // Shorter responses for speed
+            put("temperature", 0.0)     // Deterministic for fastest response
+            put("top_p", 0.9)          // Focus on most likely tokens
+            put("frequency_penalty", 0.2) // Reduce repetition
         }
         
         return request.toString()
